@@ -114,7 +114,7 @@ Bootstrap is idempotent and uses a cross-process activation lock. It creates ded
 ./bootstrap.sh --upgrade  # Drain leases/queues and pause new callers first
 ```
 
-All sessions must use the same state/config, including a custom `--state-dir` or `SIM_MANAGER_STATE_DIR`. Config changes apply after leases/queues drain. Busy inconsistent acquisitions fail; release/status/cleanup can recover with the saved database config if the config file is missing or malformed. Upgrade stops the managed watcher before replacing code; it refuses busy or unmanaged installations.
+All sessions must use the same state/config, including a custom `--state-dir` or `SIM_MANAGER_STATE_DIR`. Config changes apply after leases/queues drain. Busy inconsistent acquisitions fail; release/status/cleanup can recover with the saved database config if the config file is missing or malformed. Upgrade uses the incoming version to stop the verified managed watcher before replacing code; watcher identity protocol checks also restart an older watcher before it can interpret new leases. The installer refuses busy or unmanaged installations.
 
 ## CLI examples
 

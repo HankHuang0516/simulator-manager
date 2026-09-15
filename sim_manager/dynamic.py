@@ -78,7 +78,7 @@ def provision_environment(manager,token):
 def fail_environment(manager,resource):
     with manager.transaction():
         # Never adopt partially created devices; operators can inspect any orphans.
-        manager.db.execute("UPDATE environments SET phase='failed',creator_pid=NULL,creator_start=NULL WHERE resource=?",(resource,))
+        manager.db.execute("UPDATE environments SET phase='failed',creator_pid=NULL,creator_start=NULL WHERE resource=? AND phase='creating'",(resource,))
 
 
 def retire_idle(manager,force=False):
@@ -86,6 +86,13 @@ def retire_idle(manager,force=False):
     from .providers import stop_managed
     now = time.time()
     with manager.transaction():
+        # Complete specs are durable SDK-create acknowledgments, never name adoption.
+        for complete in manager.db.execute("SELECT * FROM environments WHERE phase='failed' AND running=0 AND resource NOT IN (SELECT resource FROM leases)").fetchall():
+            spec = json.loads(complete['spec'])
+            acknowledged = bool(spec.get('udid')) if complete['pool']=='ios' else bool(spec.get('avd') and spec.get('avd_home'))
+            if acknowledged:
+                manager.db.execute("UPDATE environments SET phase='ready',creator_pid=NULL,creator_start=NULL WHERE resource=?",(complete['resource'],))
+                manager.event('environment-create-recovered',complete['resource'],complete['session'])
         # Crash recovery for incomplete creation leaves a visible, quarantined row.
         for row in manager.db.execute("SELECT * FROM environments WHERE phase='creating'").fetchall():
             if not boot_matches(row['boot'],manager.machine_boot) or not process_alive(row['creator_pid'] or 0,row['creator_start']):

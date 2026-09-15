@@ -247,6 +247,18 @@ class DynamicTests(unittest.TestCase):
         shutdown=[c for c in calls if c[:2]==['simctl','shutdown']]
         self.assertEqual(shutdown,[['simctl','shutdown',a['resource']['udid']]])
 
+    def test_committed_creation_is_preserved_and_recovered_after_delivery_failure(self):
+        from sim_manager.dynamic import fail_environment
+        a=self.lease();self.release(a['token']);m=Manager(self.state)
+        fail_environment(m,a['resource_id'])
+        self.assertEqual(m.db.execute('SELECT phase FROM environments').fetchone()[0],'ready')
+        m.db.execute("UPDATE environments SET phase='failed'")
+        retire_idle(m,force=True)
+        self.assertEqual(m.db.execute('SELECT phase FROM environments').fetchone()[0],'ready')
+        again=m.acquire('ios',session='a',owner_pid=os.getpid(),timeout=0)
+        self.assertEqual(again['resource']['udid'],a['resource']['udid'])
+        m.release(again['token']);m.close()
+
     def test_android_idle_shutdown_verifies_owned_pid_avd_and_explicit_serial(self):
         p=self.cli('run','android','--session','a','--boot','--json','--',sys.executable,'-c','pass')
         self.assertEqual(p.returncode,0,p.stdout+p.stderr)
@@ -287,6 +299,19 @@ class DynamicTests(unittest.TestCase):
         self.until(lambda:process_stamp(first['pid']) is None)
         ensure(m);second=self.until(lambda:info() if info() and info()['pid']!=first['pid'] else None)
         self.assertNotEqual(first['pid'],second['pid']);stop(m);m.close()
+
+    def test_ensure_restarts_watcher_with_old_identity_protocol(self):
+        self.config['monitor']['daemon']=True;self.write();m=Manager(self.state)
+        ensure(m)
+        def info():
+            row=m.db.execute("SELECT value FROM meta WHERE key='watcher'").fetchone();return json.loads(row[0]) if row else None
+        first=self.until(info)
+        legacy=dict(first);legacy.pop('identity_version',None)
+        m.db.execute("INSERT OR REPLACE INTO meta VALUES('watcher',?)",(json.dumps(legacy),))
+        ensure(m)
+        updated=self.until(lambda:info() if info() and info()['pid']!=first['pid'] else None)
+        self.assertEqual(updated['identity_version'],2)
+        stop(m);m.close()
 
     def test_watchdog_enforces_dead_supervisor_budget_without_killing_owner_session(self):
         a=self.launch('run','gui','--budget-seconds',.7,'--json','--',sys.executable,'-c','import time;time.sleep(20)')

@@ -16,7 +16,7 @@ def stop(manager):
     if not row:
         return {'stopped':False}
     info = json.loads(row[0])
-    if boot_matches(info['boot'],manager.machine_boot) and process_alive(info['pid'],info['start']):
+    if (boot_matches(info['boot'],manager.machine_boot) or info['boot'].startswith('{ sec = ')) and process_alive(info['pid'],info['start']):
         os.kill(info['pid'],signal.SIGTERM)
         deadline = time.monotonic()+5
         while time.monotonic()<deadline and process_alive(info['pid'],info['start']):
@@ -38,8 +38,10 @@ def ensure(manager):
         return {'enabled':False}
     row = manager.db.execute("SELECT value FROM meta WHERE key='watcher'").fetchone()
     info = json.loads(row[0]) if row else None
-    if info and boot_matches(info['boot'],manager.machine_boot) and process_alive(info['pid'],info['start']):
-        return {'enabled':True,'pid':info['pid']}
+    if info and (boot_matches(info['boot'],manager.machine_boot) or info['boot'].startswith('{ sec = ')) and process_alive(info['pid'],info['start']):
+        if info.get('identity_version')==2:
+            return {'enabled':True,'pid':info['pid']}
+        stop(manager)  # An older watcher must not interpret new lease identities.
     logs = manager.state_dir/'logs'
     logs.mkdir(exist_ok=True,mode=0o700)
     with (logs/'watcher.log').open('ab') as log:
@@ -96,7 +98,7 @@ def watch(manager, once=False):
             fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:
             return {'watching':False,'reason':'already-running'}
-        info = {'pid':os.getpid(),'start':process_stamp(os.getpid()),'boot':manager.machine_boot}
+        info = {'pid':os.getpid(),'start':process_stamp(os.getpid()),'boot':manager.machine_boot,'identity_version':2}
         with manager.transaction():
             manager.db.execute("INSERT OR REPLACE INTO meta VALUES('watcher',?)",(json.dumps(info),))
         try:
