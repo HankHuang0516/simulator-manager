@@ -247,6 +247,18 @@ class DynamicTests(unittest.TestCase):
         shutdown=[c for c in calls if c[:2]==['simctl','shutdown']]
         self.assertEqual(shutdown,[['simctl','shutdown',a['resource']['udid']]])
 
+    def test_zero_wait_attempt_survives_slow_local_housekeeping(self):
+        from sim_manager import dynamic
+        original=dynamic.retire_idle
+        def slow(manager,*args,**kwargs):
+            time.sleep(.2)
+            return original(manager,*args,**kwargs)
+        with patch('sim_manager.dynamic.retire_idle',side_effect=slow):
+            a=self.lease()
+        self.assertEqual(a['mode'],'dynamic')
+        self.release(a['token'])
+        self.assertEqual(self.status()['queue'],[])
+
     def test_committed_creation_is_preserved_and_recovered_after_delivery_failure(self):
         from sim_manager.dynamic import fail_environment
         a=self.lease();self.release(a['token']);m=Manager(self.state)

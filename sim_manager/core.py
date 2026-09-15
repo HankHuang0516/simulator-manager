@@ -354,6 +354,9 @@ class Manager:
         project = str(Path(project or Path.cwd()).resolve())
         request = secrets.token_hex(16)
         end = time.monotonic() + timeout
+        # A zero timeout means one admission attempt, not a 100ms processing
+        # deadline. The local loop removes it immediately if admission fails;
+        # this watchdog ceiling only bounds a stalled first attempt.
         monitor.update(self)
         with self.transaction():
             self.sweep()
@@ -361,7 +364,7 @@ class Manager:
             if self.canonical(normalize_config(json.loads(current['value']))) != self.canonical(self.requested):
                 raise ManagerError('Shared configuration changed; retry acquire with current configuration')
             self.db.execute('INSERT INTO queue(request,pool,session,project,owner_pid,owner_start,boot,waiter_pid,waiter_start,deadline,ttl,created,requested_mode,foreground,budget) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                            (request,pool,session,project,pid,start,self.machine_boot,os.getpid(),waiter,time.time()+max(timeout,.1),ttl,time.time(),mode,int(foreground),budget))
+                            (request,pool,session,project,pid,start,self.machine_boot,os.getpid(),waiter,time.time()+(60 if timeout==0 else timeout),ttl,time.time(),mode,int(foreground),budget))
             self.db.execute('UPDATE sessions SET last_seen=? WHERE session=?',(time.time(),session))
             self.event('queued', session=session, detail=pool)
         try:
