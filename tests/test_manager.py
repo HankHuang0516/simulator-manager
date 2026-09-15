@@ -203,6 +203,25 @@ class ManagerTests(unittest.TestCase):
         self.until(lambda:not self.status()['leases'])
         p.communicate(timeout=3)
 
+    def test_interrupt_after_begin_rolls_back_before_release(self):
+        lease=self.acquire();m=self.manager();real=m.db
+        class InterruptingConnection:
+            def __init__(self):self.once=True
+            def execute(self,sql,*args):
+                result=real.execute(sql,*args)
+                if sql=='BEGIN IMMEDIATE' and self.once:
+                    self.once=False
+                    raise KeyboardInterrupt
+                return result
+            @property
+            def in_transaction(self):return real.in_transaction
+        m.db=InterruptingConnection()
+        with self.assertRaises(KeyboardInterrupt):
+            with m.transaction():pass
+        self.assertFalse(real.in_transaction)
+        self.assertTrue(m.release(lease['token'])['released'])
+        m.db=real;m.close()
+
     def test_gate_eof_never_runs_command(self):
         from sim_manager.execution import spawn_gated
         marker = self.state/'should-not-exist'

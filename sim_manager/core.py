@@ -229,8 +229,8 @@ class Manager:
 
     @contextlib.contextmanager
     def transaction(self):
-        self.db.execute('BEGIN IMMEDIATE')
         try:
+            self.db.execute('BEGIN IMMEDIATE')
             yield
             self.db.execute('COMMIT')
         except BaseException:

@@ -8,7 +8,7 @@ Apple Silicon arm64, macOS 26.6.2, Python 3.14.5, SQLite 3.53.4, Xcode 26.6 (17F
 
 ## Automated coverage
 
-**61 tests passed locally**: the original 41 tests plus 20 dynamic/policy/watchdog tests, including both platform idle shutdown and interrupted shutdown recovery.
+The 61-test suite passed locally. A macOS CI SIGTERM run exposed an interrupt arriving immediately after BEGIN; the transaction guard now covers BEGIN itself, and all 21 targeted scheduler tests pass, including a deterministic real-SQLite rollback regression. The complete suite now contains 62 tests, including 20 dynamic/policy/watchdog tests.
 
 - Cross-process FIFO, exclusion, observed intervals, weighted capacities and blocked-head progress.
 - Three parallel private creations reserve capacity before SDK calls; a fourth cannot exceed admission.
@@ -30,7 +30,7 @@ The validation supervisor was deliberately interrupted before boot readiness com
 
 This verifies real creation, startup/interruption handling, lease release, pressure fallback and exact-device idle shutdown. It **does not claim successful app UI validation or completed live iOS boot readiness**. The complete boot/work timing path is covered with fake SDK executables. Run the project's device-targeted checks on a host with sufficient resources for app verification.
 
-Android tools were absent from the tested shell PATH; real Android VM startup/app verification remains untested. Adapter and private-AVD provisioning behavior is tested with isolated fake executables and installed-image fixtures.
+Android tools were absent from the tested shell PATH, but actual shared activation found the installed SDK tools through fallback discovery and successfully created a dedicated shutdown AVD from an installed system image. Real Android VM startup/app verification remains untested; adapter boot/idle-shutdown behavior is covered with fake executables.
 
 ## CI and boundaries
 
