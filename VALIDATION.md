@@ -1,6 +1,6 @@
 # Validation report
 
-Validated on September 15, 2026. Version 2.0.2.
+Validated on September 15, 2026. Version 2.0.3.
 
 ## Local environment
 
@@ -51,3 +51,9 @@ The Anthill task demonstrated the startup cause: avdmanager had produced target=
 ## Warm reuse regression
 
 All 83 tests passed locally in 49.049 seconds on the final 2.0.2 source. Seven new tests cover consecutive supervised chunks with exactly one VM boot, pressure stages within capacity, pending owner protection after idle expiry, unrelated GUI queues, cold-head slot reclamation, foreground waiters blocked by GUI ownership, and reclaiming only excess warm capacity. Existing exact-identifier/provenance shutdown and active lease safety tests still pass. Skill validation, compileall and diff whitespace checks pass. Live host SDK boot was not repeated for this change; the shared ADB remote-stop requester remains unknown and is a separate validation blocker.
+
+## Android transport readiness regression
+
+All 91 tests passed locally in 73.491 seconds. Eight new cases cover stale assigned serial disappearance before cold boot, transient warm AVD-name and boot-property failures without relaunch, an unidentified other transport disappearing before admission, persistent unknown-transport refusal with no child/launch and verified release, changing-inventory identity rechecks, original-deadline command caps, exiting-port readiness and persistent occupied-port refusal. Existing duplicate AVD, foreign serial, external attachment, provenance, fair-use and warm-reuse coverage still passes. The direct fake-VM test fixture was subsequently changed to retain and reap its subprocess handle; its targeted recheck passed (1 test, 1.643 seconds) without a subprocess ResourceWarning. Skill frontmatter validation, compileall and diff whitespace checks pass.
+
+The Anthill task separately reported successful real cold boot (API36, guest MemTotal2017772kB, correct AVD) and an app homepage screenshot before this patch was installed. That recovery is consistent with a transient connection window, not proof that this patch was exercised or that shared ADB remote stops are solved. No diagnostic-only live boot, SDK security change, userdata reset, global policy extension or shared ADB restart was performed for this regression.

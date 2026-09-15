@@ -42,7 +42,7 @@ This is device-data isolation similar to dedicated development environments. It 
 
 Private identity does not mean permanent occupancy. Keep the returned session label stable, including across tool calls. A new label or different project path creates a different environment. At `max_environments`, new owners wait/timeout; existing environments are never silently erased or reassigned. Failed partial creations remain visible and quarantined for operator inspection.
 
-Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 2.0.2.
+Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 2.0.3.
 
 ## Time limits and fair yielding
 
@@ -115,6 +115,10 @@ Bootstrap is idempotent and uses a cross-process activation lock. It creates ded
 ```
 
 All sessions must use the same state/config, including a custom `--state-dir` or `SIM_MANAGER_STATE_DIR`. Config changes apply after leases/queues drain. Busy inconsistent acquisitions fail; release/status/cleanup can recover with the saved database config if the config file is missing or malformed. Upgrade uses the incoming version to stop the verified managed watcher before replacing code; watcher identity protocol checks also restart an older watcher before it can interpret new leases. The installer refuses busy or unmanaged installations.
+
+## Android transport readiness
+
+Version 2.0.3 retries read-only ADB inventory, AVD-name and boot-property queries within the original boot deadline. A disconnected console is never treated as permission to skip an unknown emulator: every listed emulator must be identified and the inventory re-enumerated before attachment or launch. Exiting occupied ports are awaited without stopping a process; persistent ambiguity blocks the workload and supervised release still applies. Known duplicate AVDs, foreign target identities and external runtime attachment remain rejected. No shared ADB server restart, data clearing or policy extension is performed. This addresses transient readiness failures after genuine retirement; it does not establish the source or resolution of shared ADB remote-stop requests.
 
 ## Warm environment reuse
 

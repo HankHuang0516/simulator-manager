@@ -10,6 +10,9 @@ import unittest
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from sim_manager.core import Manager
+from sim_manager import providers
+from sim_manager.core import ManagerError
+from unittest.mock import patch
 
 FAKE = r'''
 import json,os,sys,time
@@ -41,8 +44,20 @@ elif name=='fake-adb':
         for serial,value in state['devices'].items():print(serial,value,sep='\t')
     elif args[0]=='-s':
         assert args[1].startswith('emulator-')
-        if args[2:]==['emu','avd','name']:print(state.get('avd','DedicatedAVD')+'\nOK')
-        elif args[2:]==['shell','getprop','sys.boot_completed']:print('1')
+        if args[2:]==['emu','avd','name']:
+            failures=state.get('name_failures',0)
+            if failures:
+                state['name_failures']=failures-1
+                if state.get('drop_failed_serial'):state['devices'].pop(args[1],None)
+                save();print('TCP connection refused',file=sys.stderr);sys.exit(1)
+            if state.get('name_always_fails'):
+                print('TCP connection refused',file=sys.stderr);sys.exit(1)
+            print(state.get('avd','DedicatedAVD')+'\nOK')
+        elif args[2:]==['shell','getprop','sys.boot_completed']:
+            failures=state.get('getprop_failures',0)
+            if failures:
+                state['getprop_failures']=failures-1;save();sys.exit(1)
+            print('1')
         else:sys.exit(99)
     else:sys.exit(99)
 '''
@@ -138,6 +153,67 @@ class ProviderTests(unittest.TestCase):
         self.assertNotEqual(p.returncode,0)
         self.assertEqual(self.status()['leases'],[])
 
+    def test_android_stale_assigned_transport_disappears_before_cold_boot(self):
+        self.update(devices={'emulator-5680':'device'},name_failures=1,drop_failed_serial=True)
+        p=self.cli('run','android','--boot','--boot-timeout',4,'--json','--',sys.executable,'-c','pass')
+        self.assertEqual(p.returncode,0,p.stdout+p.stderr)
+        self.assertEqual(len([c for c in self.calls() if c[0]=='fake-emulator' and c[1]!=['-list-avds']]),1)
+        self.assertEqual(self.status()['leases'],[])
+
+    def test_android_warm_name_and_boot_property_recover_without_relaunch(self):
+        p=self.cli('run','android','--boot','--boot-timeout',4,'--json','--',sys.executable,'-c','pass')
+        self.assertEqual(p.returncode,0,p.stdout+p.stderr)
+        self.update(name_failures=1,getprop_failures=1)
+        p=self.cli('run','android','--boot','--boot-timeout',4,'--json','--',sys.executable,'-c','pass')
+        self.assertEqual(p.returncode,0,p.stdout+p.stderr)
+        self.assertEqual(len([c for c in self.calls() if c[0]=='fake-emulator' and c[1]!=['-list-avds']]),1)
+        self.assertEqual(self.status()['leases'],[])
+
+    def test_android_unknown_other_transport_must_disappear_before_launch(self):
+        self.update(devices={'emulator-5678':'offline'},name_failures=1,drop_failed_serial=True)
+        p=self.cli('run','android','--boot','--boot-timeout',4,'--json','--',sys.executable,'-c','pass')
+        self.assertEqual(p.returncode,0,p.stdout+p.stderr)
+        self.assertEqual(self.status()['leases'],[])
+
+    def test_android_persistent_unknown_transport_blocks_child_and_launch(self):
+        self.update(devices={'emulator-5678':'device'},name_always_fails=True)
+        p=self.cli('run','android','--boot','--boot-timeout',.4,'--json','--',sys.executable,'-c','raise SystemExit(99)')
+        self.assertEqual(p.returncode,1,p.stdout+p.stderr)
+        self.assertIn('fully identifiable',p.stderr)
+        self.assertTrue(json.loads(p.stdout)['released'])
+        self.assertFalse(any(c[0]=='fake-emulator' for c in self.calls()))
+        self.assertEqual(self.status()['leases'],[])
+
+    def test_android_waits_for_exiting_ports_before_launch(self):
+        m=Manager(self.state)
+        lease=m.acquire('android',owner_pid=os.getpid(),timeout=0)
+        children=[]
+        spawn=providers.spawn_gated
+        def track(*args,**kwargs):
+            child,gate=spawn(*args,**kwargs);children.append(child);return child,gate
+        try:
+            with patch.object(providers,'ports_free',side_effect=[False,True,True]) as free, \
+                 patch.object(providers,'spawn_gated',side_effect=track):
+                providers.boot(m,lease['resource'],timeout=4)
+            self.assertEqual(free.call_count,3)
+            self.assertEqual(len([c for c in self.calls() if c[0]=='fake-emulator' and c[1]!=['-list-avds']]),1)
+        finally:
+            m.release(lease['token']);m.close()
+            for child in children:
+                if child.poll() is None:os.killpg(child.pid,signal.SIGTERM)
+                child.wait(timeout=5)
+
+    def test_android_persistently_occupied_ports_never_launch(self):
+        m=Manager(self.state)
+        lease=m.acquire('android',owner_pid=os.getpid(),timeout=0)
+        try:
+            with patch.object(providers,'ports_free',return_value=False):
+                with self.assertRaises(ManagerError):
+                    providers.boot(m,lease['resource'],timeout=.3)
+            self.assertFalse(any(c[0]=='fake-emulator' for c in self.calls()))
+        finally:
+            m.release(lease['token']);m.close()
+
     def test_android_other_avd_at_port_refused(self):
         self.update(devices={'emulator-5680':'device'},avd='OtherAVD')
         p=self.cli('run','android','--boot','--json','--',sys.executable,'-c','raise SystemExit(99)')
@@ -185,6 +261,35 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(self.cli('discover','android','--json').returncode,0)
         forbidden={'shutdown','erase','kill-server','kill'}
         self.assertFalse(any(forbidden.intersection(c[1]) for c in self.calls()))
+
+
+class AndroidInventoryTests(unittest.TestCase):
+    def test_changed_inventory_rechecks_every_emulator_identity(self):
+        first={'emulator-5680':'device'}
+        second={**first,'emulator-5678':'device'}
+        with patch.object(providers,'android_devices',side_effect=[first,second,second,second]), \
+             patch.object(providers,'avd_name',side_effect=['DedicatedAVD','DedicatedAVD','OtherAVD']) as name, \
+             patch.object(providers.time,'sleep'):
+            devices,names=providers.android_inventory('adb',providers.time.monotonic()+2)
+        self.assertEqual(devices,second)
+        self.assertEqual(names,{'emulator-5680':'DedicatedAVD','emulator-5678':'OtherAVD'})
+        self.assertEqual([c.args[1] for c in name.call_args_list],['emulator-5680','emulator-5680','emulator-5678'])
+
+    def test_unidentified_inventory_uses_original_deadline_for_every_command(self):
+        clock=[0.0];timeouts=[]
+        def devices(adb,timeout):
+            timeouts.append((clock[0],timeout));return {'emulator-5678':'offline'}
+        def name(adb,serial,timeout):
+            timeouts.append((clock[0],timeout));raise ManagerError('connection refused')
+        def sleep(seconds):clock[0]+=seconds
+        with patch.object(providers.time,'monotonic',side_effect=lambda:clock[0]), \
+             patch.object(providers.time,'sleep',side_effect=sleep), \
+             patch.object(providers,'android_devices',side_effect=devices), \
+             patch.object(providers,'avd_name',side_effect=name):
+            with self.assertRaisesRegex(ManagerError,'fully identifiable'):
+                providers.android_inventory('adb',.7)
+        self.assertEqual(clock[0],.7)
+        self.assertTrue(all(0<timeout<=.7-start for start,timeout in timeouts))
 
 
 class InstallTests(unittest.TestCase):

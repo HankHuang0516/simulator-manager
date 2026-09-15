@@ -10,7 +10,7 @@ Use the complete `sim-manager` CLI for runtime resources. If absent from PATH, r
 ## Enable this session
 
 Follow `https://github.com/HankHuang0516/simulator-manager/blob/main/SESSION_START.md`.
-Use bootstrap to install the complete project once, or the installed version 2.0.2 CLI:
+Use bootstrap to install the complete project once, or the installed version 2.0.3 CLI:
 
 ```sh
 sim-manager enable --session '<actual-task-id>' --project '/actual/project/path' --prepare --json

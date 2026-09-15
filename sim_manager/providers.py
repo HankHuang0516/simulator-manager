@@ -44,13 +44,39 @@ def call(args, timeout=30, env=None):
     return p.stdout.strip()
 
 
-def android_devices(adb):
-    return {v[0]:v[1] for v in (line.split() for line in call([adb, 'devices']).splitlines()[1:]) if len(v)>=2}
+def android_devices(adb, timeout=30):
+    return {v[0]:v[1] for v in (line.split() for line in call([adb, 'devices'], timeout).splitlines()[1:]) if len(v)>=2}
 
 
-def avd_name(adb, serial):
-    lines = call([adb, '-s', serial, 'emu', 'avd', 'name'], 10).splitlines()
+def avd_name(adb, serial, timeout=10):
+    lines = call([adb, '-s', serial, 'emu', 'avd', 'name'], timeout).splitlines()
     return next((line.strip() for line in lines if line.strip() and line.strip() != 'OK'), '')
+
+
+def android_inventory(adb, deadline):
+    """Require a complete, rechecked inventory; never skip unidentified emulators."""
+    last_error = 'Android device inventory is not ready'
+    while time.monotonic() < deadline:
+        try:
+            devices = android_devices(adb, max(.001, min(10, deadline-time.monotonic())))
+            names = {}
+            for serial in devices:
+                if serial.startswith('emulator-'):
+                    if time.monotonic() >= deadline:
+                        raise ManagerError('Android inventory deadline reached')
+                    names[serial] = avd_name(adb, serial, max(.001, min(10, deadline-time.monotonic())))
+                    if not names[serial]:
+                        raise ManagerError(f'Android AVD name unavailable for {serial}')
+            if time.monotonic() >= deadline:
+                raise ManagerError('Android inventory deadline reached')
+            fresh = android_devices(adb, max(.001, min(10, deadline-time.monotonic())))
+            if fresh == devices and time.monotonic() < deadline:
+                return devices, names
+            last_error = 'Android inventory changed while checking AVD identities'
+        except ManagerError as e:
+            last_error = str(e)
+        time.sleep(max(0, min(.25, deadline-time.monotonic())))
+    raise ManagerError(f'Android inventory did not become fully identifiable before boot deadline: {last_error}')
 
 
 def ports_free(port):
@@ -114,52 +140,67 @@ def boot(manager, resource, timeout=180):
     if resource.get('avd_home'):
         env['ANDROID_AVD_HOME'] = os.path.expanduser(resource['avd_home'])
     serial = f'emulator-{resource["port"]}'
-    devices = android_devices(adb)
-    # The same writable AVD must not be launched on a second console port.
-    for other in devices:
-        if other.startswith('emulator-') and avd_name(adb, other) == resource['avd'] and other != serial:
-            raise ManagerError(f'AVD already running at {other}; refusing duplicate launch')
-    if serial in devices:
-        if avd_name(adb, serial) != resource['avd']:
-            raise ManagerError('Configured Android serial is occupied by another AVD')
+    while True:
+        devices, names = android_inventory(adb, deadline)
+        # The same writable AVD must not be launched on a second console port.
+        for other in devices:
+            if other.startswith('emulator-') and names[other] == resource['avd'] and other != serial:
+                raise ManagerError(f'AVD already running at {other}; refusing duplicate launch')
+        runtime = manager.runtime(resource)
         owned = runtime and runtime['pid'] and process_alive(runtime['pid'], runtime['start'])
-        if not owned and not resource['allow_attach']:
-            raise ManagerError('Android emulator started outside manager; refusing to attach')
-    else:
-        # A prior manager launch may not have appeared in adb yet.
-        owned = runtime and runtime['pid'] and process_alive(runtime['pid'], runtime['start'])
-        if not owned:
-            disk_preflight(manager)
-            if resource['avd'] not in call([emulator, '-list-avds'], env=env).splitlines():
-                raise ManagerError('Configured Android AVD does not exist')
-            if not ports_free(resource['port']):
-                raise ManagerError('Android console/adb ports occupied; refusing to launch')
-            logs = manager.state_dir / 'logs'
-            logs.mkdir(exist_ok=True, mode=0o700)
-            # Hash IDs rather than allowing resource names to construct paths.
-            import hashlib
-            log_path = logs / (hashlib.sha256(resource['id'].encode()).hexdigest()[:16] + '.log')
-            with log_path.open('ab') as log:
-                child, gate = spawn_gated([emulator, '-avd', resource['avd'], '-port', str(resource['port']), '-no-snapshot-save'], env=env, stdout=log, stderr=log)
-            try:
-                manager.mark_runtime(resource, 'starting', child.pid)
-                os.write(gate, b'1')
-            finally:
-                os.close(gate)
-            runtime = manager.runtime(resource)
+        if serial in devices:
+            if names[serial] != resource['avd']:
+                raise ManagerError('Configured Android serial is occupied by another AVD')
+            if not owned and not resource['allow_attach']:
+                raise ManagerError('Android emulator started outside manager; refusing to attach')
+            break
+        # A prior manager launch may not have appeared in adb yet. Reuse its
+        # live process; otherwise wait for exiting console sockets, never kill.
+        if owned or ports_free(resource['port']):
+            break
+        if time.monotonic() >= deadline:
+            raise ManagerError('Android console/adb ports occupied until boot deadline; refusing to launch')
+        time.sleep(max(0, min(.25, deadline-time.monotonic())))
+    if serial not in devices and not owned:
+        disk_preflight(manager)
+        if time.monotonic() >= deadline:
+            raise ManagerError('Android boot deadline reached before launch')
+        if resource['avd'] not in call([emulator, '-list-avds'], max(.001, min(30, deadline-time.monotonic())), env=env).splitlines():
+            raise ManagerError('Configured Android AVD does not exist')
+        if not ports_free(resource['port']):
+            raise ManagerError('Android console/adb ports occupied; refusing to launch')
+        logs = manager.state_dir / 'logs'
+        logs.mkdir(exist_ok=True, mode=0o700)
+        # Hash IDs rather than allowing resource names to construct paths.
+        import hashlib
+        log_path = logs / (hashlib.sha256(resource['id'].encode()).hexdigest()[:16] + '.log')
+        with log_path.open('ab') as log:
+            child, gate = spawn_gated([emulator, '-avd', resource['avd'], '-port', str(resource['port']), '-no-snapshot-save'], env=env, stdout=log, stderr=log)
+        try:
+            manager.mark_runtime(resource, 'starting', child.pid)
+            os.write(gate, b'1')
+        finally:
+            os.close(gate)
+        runtime = manager.runtime(resource)
+    last_error = ''
     while time.monotonic() < deadline:
-        devices = android_devices(adb)
-        if devices.get(serial) == 'device':
-            if avd_name(adb, serial) != resource['avd']:
-                raise ManagerError('Android serial changed AVD during boot')
-            value = call([adb, '-s', serial, 'shell', 'getprop', 'sys.boot_completed'], 10)
-            if value == '1':
+        try:
+            devices = android_devices(adb, max(.001, min(10, deadline-time.monotonic())))
+            name = avd_name(adb, serial, max(.001, min(10, deadline-time.monotonic()))) if devices.get(serial) == 'device' else None
+            value = call([adb, '-s', serial, 'shell', 'getprop', 'sys.boot_completed'], max(.001, min(10, deadline-time.monotonic()))) if name == resource['avd'] else None
+        except ManagerError as e:
+            last_error = str(e)
+            name, value = None, None
+        if name is not None and name != resource['avd']:
+            raise ManagerError('Android serial changed AVD during boot')
+        if value is not None:
+            if value == '1' and time.monotonic() < deadline:
                 manager.mark_runtime(resource, 'ready', runtime['pid'] if runtime else None)
                 return
         if runtime and runtime['pid'] and not process_alive(runtime['pid'], runtime['start']):
             raise ManagerError('Android emulator exited during boot; inspect state_dir/logs')
-        time.sleep(.5)
-    raise ManagerError('Android boot timed out; runtime is left running for safe recovery')
+        time.sleep(max(0, min(.5, deadline-time.monotonic())))
+    raise ManagerError(f'Android boot timed out; runtime is left running for safe recovery. {last_error}')
 
 
 def discover(manager, kind):
