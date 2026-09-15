@@ -1,6 +1,6 @@
 # Validation report
 
-Validated on September 15, 2026. Version 2.0.1.
+Validated on September 15, 2026. Version 2.0.2.
 
 ## Local environment
 
@@ -47,3 +47,7 @@ The SwiftUI floating panel compiled on Apple Silicon with Swift 6.3.3 targeting 
 ## Android root target regression
 
 The Anthill task demonstrated the startup cause: avdmanager had produced target=android-0 for an Android 36.1 image. Correcting only its private manifest to android-36 preserved the 36.1 image and yielded sys.boot_completed=1, ro.build.version.sdk=36 and exit 0 / released true. No SDK security/signature changes were needed. This confirms boot readiness for that task, not game UI validation. New creation validates target/manifest paths, preserves numeric image versions and data, refuses name collisions, and offers explicit leased private target repair with idle/port/image provenance checks. All 76 tests passed in the complete local rerun (67.187 seconds under concurrent host load), and all 76 passed on macOS/Python 3.14 and Ubuntu/Python 3.9 CI. One earlier local run hit a SQLite lock in the pre-existing eight-process exclusion test; the targeted recheck and full rerun both passed. CI: https://github.com/HankHuang0516/simulator-manager/actions/runs/34953674876.
+
+## Warm reuse regression
+
+All 83 tests passed locally in 49.049 seconds on the final 2.0.2 source. Seven new tests cover consecutive supervised chunks with exactly one VM boot, pressure stages within capacity, pending owner protection after idle expiry, unrelated GUI queues, cold-head slot reclamation, foreground waiters blocked by GUI ownership, and reclaiming only excess warm capacity. Existing exact-identifier/provenance shutdown and active lease safety tests still pass. Skill validation, compileall and diff whitespace checks pass. Live host SDK boot was not repeated for this change; the shared ADB remote-stop requester remains unknown and is a separate validation blocker.

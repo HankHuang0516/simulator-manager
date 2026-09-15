@@ -237,6 +237,79 @@ class DynamicTests(unittest.TestCase):
         self.assertEqual(again['mode'],'traditional');self.assertEqual(again['resource_id'],a['resource_id'])
         m.release(again['token']);m.close()
 
+    def queued_request(self, m, session='a', pool='ios', project=None):
+        stamp=process_stamp(os.getpid())
+        m.db.execute('INSERT INTO queue(request,pool,session,project,owner_pid,owner_start,boot,waiter_pid,waiter_start,deadline,ttl,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+                     (session+pool,pool,session,str(Path(project or Path.cwd()).resolve()),os.getpid(),stamp,m.machine_boot,os.getpid(),stamp,time.time()+30,10,time.time()))
+
+    def warm_row(self, m, session='a'):
+        a=m.acquire('ios',session=session,owner_pid=os.getpid(),timeout=0)
+        m.release(a['token'])
+        m.db.execute('UPDATE environments SET running=1 WHERE resource=?',(a['resource_id'],))
+        return a['resource_id']
+
+    def test_consecutive_supervised_chunks_reuse_warm_vm_without_reboot(self):
+        for _ in range(2):
+            p=self.cli('run','ios','--session','a','--project',str(ROOT),'--boot','--json','--',sys.executable,'-c','pass')
+            self.assertEqual(p.returncode,0,p.stdout+p.stderr)
+        con=sqlite3.connect(self.state/'sdk.sqlite')
+        calls=[json.loads(r[0]) for r in con.execute("SELECT args FROM calls WHERE name='xcrun'")];con.close()
+        self.assertEqual(sum(c[:2]==['simctl','boot'] for c in calls),1)
+        self.assertFalse(any(c[:2]==['simctl','shutdown'] for c in calls))
+
+    def test_pressure_stage_within_capacity_keeps_unleased_warm_vm(self):
+        m=Manager(self.state);self.warm_row(m)
+        m.db.execute("INSERT OR REPLACE INTO meta VALUES('controller',?)",(json.dumps({'stage':3,'pressure':'neutral'}),))
+        with patch('sim_manager.providers.stop_managed') as stop_vm:
+            self.assertIsNone(retire_idle(m));stop_vm.assert_not_called()
+        m.close()
+
+    def test_same_owner_queue_protects_warm_vm_even_after_idle_timeout(self):
+        m=Manager(self.state);r=self.warm_row(m)
+        m.db.execute('UPDATE environments SET last_used=?',(time.time()-1000,))
+        self.queued_request(m)
+        with patch('sim_manager.providers.stop_managed') as stop_vm:
+            self.assertIsNone(retire_idle(m));stop_vm.assert_not_called()
+        m.db.execute('DELETE FROM queue');m.db.execute('DELETE FROM meta WHERE key="idle_check"')
+        with patch('sim_manager.providers.stop_managed'):
+            self.assertTrue(retire_idle(m)['stopped'])
+        m.close()
+
+    def test_unrelated_gui_queue_does_not_retire_warm_mobile_vm(self):
+        m=Manager(self.state);self.warm_row(m);self.queued_request(m,'gui-owner','gui')
+        with patch('sim_manager.providers.stop_managed') as stop_vm:
+            self.assertIsNone(retire_idle(m));stop_vm.assert_not_called()
+        m.close()
+
+    def test_waiting_cold_owner_reclaims_slot_but_preserves_queued_warm_owner(self):
+        m=Manager(self.state)
+        ids=[self.warm_row(m,name) for name in ('a','b','c')]
+        self.queued_request(m,'new');self.queued_request(m,'a')
+        with patch('sim_manager.providers.stop_managed'):
+            result=retire_idle(m)
+        self.assertTrue(result['stopped']);self.assertNotEqual(result['resource_id'],ids[0])
+        self.assertEqual(m.db.execute('SELECT running FROM environments WHERE resource=?',(ids[0],)).fetchone()[0],1)
+        m.close()
+
+    def test_foreground_waiter_blocked_by_gui_does_not_reclaim_mobile_slot(self):
+        m=Manager(self.state)
+        for name in ('a','b','c'):self.warm_row(m,name)
+        gui=m.acquire('gui',session='gui-owner',owner_pid=os.getpid(),timeout=0)
+        self.queued_request(m,'new')
+        m.db.execute('UPDATE queue SET foreground=1')
+        with patch('sim_manager.providers.stop_managed') as stop_vm:
+            self.assertIsNone(retire_idle(m));stop_vm.assert_not_called()
+        m.release(gui['token']);m.close()
+
+    def test_pressure_reclaims_only_excess_warm_capacity(self):
+        m=Manager(self.state);self.warm_row(m,'a');self.warm_row(m,'b')
+        m.db.execute("INSERT OR REPLACE INTO meta VALUES('controller',?)",(json.dumps({'stage':3,'pressure':'neutral'}),))
+        with patch('sim_manager.providers.stop_managed'):
+            self.assertTrue(retire_idle(m)['stopped'])
+            m.db.execute('DELETE FROM meta WHERE key="idle_check"')
+            self.assertIsNone(retire_idle(m))
+        m.close()
+
     def test_idle_shutdown_is_exact_owned_device_and_preserves_identity(self):
         p=self.cli('run','ios','--session','a','--boot','--json','--',sys.executable,'-c','pass')
         self.assertEqual(p.returncode,0,p.stdout+p.stderr)

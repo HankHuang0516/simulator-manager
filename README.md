@@ -42,7 +42,7 @@ This is device-data isolation similar to dedicated development environments. It 
 
 Private identity does not mean permanent occupancy. Keep the returned session label stable, including across tool calls. A new label or different project path creates a different environment. At `max_environments`, new owners wait/timeout; existing environments are never silently erased or reassigned. Failed partial creations remain visible and quarantined for operator inspection.
 
-Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 2.0.1.
+Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 2.0.2.
 
 ## Time limits and fair yielding
 
@@ -115,6 +115,10 @@ Bootstrap is idempotent and uses a cross-process activation lock. It creates ded
 ```
 
 All sessions must use the same state/config, including a custom `--state-dir` or `SIM_MANAGER_STATE_DIR`. Config changes apply after leases/queues drain. Busy inconsistent acquisitions fail; release/status/cleanup can recover with the saved database config if the config file is missing or malformed. Upgrade uses the incoming version to stop the verified managed watcher before replacing code; watcher identity protocol checks also restart an older watcher before it can interpret new leases. The installer refuses busy or unmanaged installations.
+
+## Warm environment reuse
+
+Version 2.0.2 prioritizes a queued request for its own running private environment before idle retirement. A queue entry or a degraded stage alone no longer causes shutdown. Maintenance reclaims an unleased private VM when running occupancy exceeds admission capacity, a FIFO-head cold environment needs a slot, critical host telemetry requires relief, or the configured idle timeout expires. Pending matching warm requests remain protected. Each maintenance tick retires at most one provenance-verified VM and retains its installed apps/userdata. Lease release and VM shutdown remain separate: fair yielding gives up use rights without necessarily restarting the device.
 
 ## CLI examples
 

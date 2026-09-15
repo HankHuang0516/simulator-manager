@@ -107,10 +107,39 @@ def retire_idle(manager,force=False):
             return None
         manager.db.execute("INSERT OR REPLACE INTO meta VALUES('idle_check',?)",(str(now),))
         control = admission(manager)
-        queued = manager.db.execute('SELECT 1 FROM queue LIMIT 1').fetchone()
+        requests = manager.db.execute('SELECT * FROM queue ORDER BY seq').fetchall()
+        environments = manager.db.execute('SELECT * FROM environments').fetchall()
+        leases = manager.db.execute('SELECT * FROM leases').fetchall()
+        leased = {r['resource'] for r in leases}
+        running = sum(r['running'] or r['phase'] in ('creating','stopping') or r['resource'] in leased
+                      for r in environments)
+        private_requests = [q for q in requests if manager.config['mode']=='dynamic'
+                            and q['pool'] in ('ios','android') and q['requested_mode']!='traditional']
+        assigned = {(r['session'],r['project'],r['pool']):r for r in environments}
+        # A pending request for the same warm assignment must reach admission
+        # before maintenance can retire it, even after the idle timer elapsed.
+        protected = {r['resource'] for q in private_requests
+                     for r in [assigned.get((q['session'],q['project'],q['pool']))]
+                     if r and r['phase']=='ready' and r['running']}
+        needs_slot = False
+        if running>=control['capacity'] and sum(json.loads(r['spec'])['cost'] for r in leases)<control['capacity']:
+            heads = {q['pool']:q for q in reversed(requests)}
+            for q in private_requests:
+                if q['seq']!=heads[q['pool']]['seq']:
+                    continue
+                if q['foreground'] and any(r['foreground'] or r['pool']=='gui' for r in leases):
+                    continue
+                r = assigned.get((q['session'],q['project'],q['pool']))
+                if r and r['phase']=='ready' and not r['running'] and r['resource'] not in leased:
+                    needs_slot = True
+                elif not r and control['creation_allowed'] and len(environments)<manager.config['dynamic']['max_environments']:
+                    needs_slot = True
         rows = manager.db.execute("SELECT * FROM environments WHERE phase IN ('ready','stopping') AND running=1 AND resource NOT IN (SELECT resource FROM leases) ORDER BY last_used").fetchall()
         rows = [r for r in rows if r['phase']=='ready' or not process_alive(r['creator_pid'] or 0,r['creator_start'])]
-        row = next((r for r in rows if force or control['stage']>0 or queued or now-r['last_used']>=manager.config['dynamic']['idle_shutdown_seconds']),None)
+        row = next((r for r in rows if force or r['phase']=='stopping' or
+                    (r['resource'] not in protected and
+                     (running>control['capacity'] or needs_slot or control.get('pressure')=='critical' or
+                      now-r['last_used']>=manager.config['dynamic']['idle_shutdown_seconds']))),None)
         if not row:
             return None
         from .core import process_stamp
