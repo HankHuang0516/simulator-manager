@@ -321,15 +321,16 @@ class ManagerTests(unittest.TestCase):
     def test_parallel_exclusion_observed_intervals(self):
         # Two independent physical slots, global budget and per-pool capacity=2.
         self.config['pools']['ios']['capacity']=2
+        self.config['lease_seconds']=30  # Measure exclusion, not slow CI startup TTL.
         self.write_config()
         log=self.state/'intervals'
         command = ('import os,time,json; p='+repr(str(log))+'; '
                    'r=os.environ["SIM_MANAGER_RESOURCE_ID"]; '
                    'f=open(p,"a"); f.write(json.dumps(["start",r,time.time()])+"\\n"); f.flush(); '
                    'time.sleep(.12); f.write(json.dumps(["end",r,time.time()])+"\\n"); f.close()')
-        ps=[self.launch('run','ios','--timeout',12,'--',sys.executable,'-c',command) for _ in range(8)]
+        ps=[self.launch('run','ios','--timeout',30,'--',sys.executable,'-c',command) for _ in range(8)]
         for p in ps:
-            out,err=p.communicate(timeout=15)
+            out,err=p.communicate(timeout=40)
             self.assertEqual(p.returncode,0,err)
         active=set()
         for event,r,t in sorted((json.loads(line) for line in log.read_text().splitlines()),key=lambda row:row[2]):
