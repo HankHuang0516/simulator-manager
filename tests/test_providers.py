@@ -61,7 +61,7 @@ class ProviderTests(unittest.TestCase):
             path=self.state/('fake-'+name)
             path.write_text('#!'+sys.executable+'\n'+FAKE);path.chmod(0o755)
             tools[name]=str(path)
-        self.config={'version':1,'tools':tools,'global_capacity':1,'poll_seconds':.025,
+        self.config={'version':1,'monitor':{'low_disk_gib':.000001,'critical_disk_gib':.0000001},'tools':tools,'global_capacity':1,'poll_seconds':.025,
                      'pools':{'ios':{'capacity':1,'resources':[{'id':'ios-test','kind':'ios','udid':'DEDICATED-UDID'}]},
                               'android':{'capacity':1,'resources':[{'id':'android-test','kind':'android','avd':'DedicatedAVD','port':5680}]}}}
         (self.state/'config.json').write_text(json.dumps(self.config))
@@ -158,6 +158,17 @@ class ProviderTests(unittest.TestCase):
         self.assertNotEqual(p.returncode,0)
         self.assertIn('outside manager',p.stderr)
         self.assertEqual(self.status()['leases'],[])
+
+    def test_low_disk_defers_new_boot_and_releases_without_launch(self):
+        self.config['monitor']['low_disk_gib']=1000000
+        (self.state/'config.json').write_text(json.dumps(self.config))
+        for pool in ('ios','android'):
+            p=self.cli('run',pool,'--boot','--json','--',sys.executable,'-c','raise SystemExit(99)')
+            self.assertEqual(p.returncode,1,p.stdout+p.stderr)
+            self.assertTrue(json.loads(p.stdout)['released'])
+            self.assertIn('boot deferred',p.stderr)
+        self.assertEqual(self.status()['leases'],[])
+        self.assertFalse(any(c[1][:2]==['simctl','boot'] or (c[0]=='fake-emulator' and c[1]!=['-list-avds']) for c in self.calls()))
 
     def test_read_only_discovery_and_no_shutdown_commands(self):
         self.assertEqual(self.cli('discover','ios','--json').returncode,0)

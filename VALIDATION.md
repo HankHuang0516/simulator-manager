@@ -8,7 +8,7 @@ Apple Silicon arm64, macOS 26.6.2, Python 3.14.5, SQLite 3.53.4, Xcode 26.6 (17F
 
 ## Automated coverage
 
-The 61-test suite passed locally. A macOS CI SIGTERM run exposed an interrupt arriving immediately after BEGIN; the transaction guard now covers BEGIN itself, and all 21 targeted scheduler tests pass, including a deterministic real-SQLite rollback regression. The complete suite now contains 62 tests, including 20 dynamic/policy/watchdog tests.
+The 61-test suite passed locally. A macOS CI SIGTERM run exposed an interrupt arriving immediately after BEGIN; the transaction guard now covers BEGIN itself, and all 21 targeted scheduler tests pass, including a deterministic real-SQLite rollback regression. The complete 62-test suite passed locally after the transaction fix. The suite also includes low-disk startup preflight and stable identity regressions (66 tests total). Real Anthill feedback exposed the old kern.boottime text changing with timezone and NTP microseconds, causing false stale reaping. macOS now uses kern.bootsessionuuid and UTC PID stamps; legacy live clock identities are protected if ambiguous.
 
 - Cross-process FIFO, exclusion, observed intervals, weighted capacities and blocked-head progress.
 - Three parallel private creations reserve capacity before SDK calls; a fourth cannot exceed admission.

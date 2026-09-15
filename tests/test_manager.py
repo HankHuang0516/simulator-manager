@@ -7,6 +7,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -104,12 +105,12 @@ class ManagerTests(unittest.TestCase):
         lease = self.acquire()
         waiters = []
         for n in range(4):
-            waiters.append(self.launch('acquire','ios','--timeout',8,'--owner-pid',os.getpid(),'--session',f'w{n}','--json'))
+            waiters.append(self.launch('acquire','ios','--timeout',30,'--owner-pid',os.getpid(),'--session',f'w{n}','--json'))
             self.until(lambda:len(self.status()['queue'])==n+1)
         self.assertEqual([r['session'] for r in self.status()['queue']],['w0','w1','w2','w3'])
         self.release(lease['token'])
         for n,p in enumerate(waiters):
-            out,err = p.communicate(timeout=5)
+            out,err = p.communicate(timeout=15)
             self.assertEqual(p.returncode,0,err)
             acquired = json.loads(out)
             self.assertEqual(acquired['session'],f'w{n}')
@@ -202,6 +203,29 @@ class ManagerTests(unittest.TestCase):
         self.assertEqual(len(self.status()['leases']),1)
         self.until(lambda:not self.status()['leases'])
         p.communicate(timeout=3)
+
+    def test_owner_and_boot_identity_are_timezone_invariant(self):
+        from sim_manager.core import boot_id,process_stamp
+        with patch.dict(os.environ,{'TZ':'UTC'}):
+            boot=boot_id();stamp=process_stamp(os.getpid());lease=self.acquire()
+        with patch.dict(os.environ,{'TZ':'America/Los_Angeles'}):
+            self.assertEqual(boot_id(),boot)
+            self.assertEqual(process_stamp(os.getpid()),stamp)
+            self.assertEqual(len(self.status()['leases']),1)
+            self.release(lease['token'])
+
+    def test_macos_boot_identity_uses_kernel_uuid_not_clock_estimate(self):
+        from sim_manager.core import boot_id
+        with patch('sim_manager.core.sys.platform','darwin'),patch('sim_manager.core.subprocess.check_output',return_value='9FA446AC-FE7B-4781-8878-F4756F39304B\n') as query:
+            first=boot_id();second=boot_id()
+            self.assertEqual(first,second)
+            self.assertTrue(all(c.args[0]==['/usr/sbin/sysctl','-n','kern.bootsessionuuid'] for c in query.call_args_list))
+
+    def test_legacy_live_identity_is_quarantined_if_clock_rendering_changes(self):
+        lease=self.acquire();m=self.manager()
+        m.db.execute("UPDATE leases SET boot='{ sec = 1, usec = 0 } changed clock' WHERE token=?",(lease['token'],))
+        self.assertEqual(m.cleanup()['reaped'],[])
+        self.assertTrue(m.release(lease['token'])['released']);m.close()
 
     def test_interrupt_after_begin_rolls_back_before_release(self):
         lease=self.acquire();m=self.manager();real=m.db

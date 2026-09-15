@@ -67,6 +67,13 @@ def ports_free(port):
             s.close()
 
 
+def disk_preflight(manager):
+    free = shutil.disk_usage(manager.state_dir).free/(1024**3)
+    minimum = manager.config['monitor']['low_disk_gib']
+    if free<minimum:
+        raise ManagerError(f'New simulator boot deferred: {free:.2f} GiB free disk; require at least {minimum:g} GiB. Release and retry after freeing space.')
+
+
 def boot(manager, resource, timeout=180):
     runtime = manager.runtime(resource)
     kind = resource['kind']
@@ -85,6 +92,7 @@ def boot(manager, resource, timeout=180):
         elif device['state'] == 'Shutdown':
             # Intent is durable before simctl's side effect. A killed boot worker
             # leaves a recoverable manager-owned boot, never an unknown attachment.
+            disk_preflight(manager)
             manager.mark_runtime(resource, 'starting')
             call([xcrun, 'simctl', 'boot', resource['udid']], max(.1, deadline-time.monotonic()))
         else:
@@ -113,6 +121,7 @@ def boot(manager, resource, timeout=180):
         # A prior manager launch may not have appeared in adb yet.
         owned = runtime and runtime['pid'] and process_alive(runtime['pid'], runtime['start'])
         if not owned:
+            disk_preflight(manager)
             if resource['avd'] not in call([emulator, '-list-avds'], env=env).splitlines():
                 raise ManagerError('Configured Android AVD does not exist')
             if not ports_free(resource['port']):

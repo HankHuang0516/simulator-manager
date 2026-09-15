@@ -3,6 +3,7 @@ import contextlib
 import json
 import math
 import os
+import re
 from pathlib import Path
 import secrets
 import sqlite3
@@ -25,27 +26,51 @@ class OwnershipError(ManagerError):
 
 def boot_id():
     if sys.platform == 'darwin':
-        return subprocess.check_output(['/usr/sbin/sysctl', '-n', 'kern.boottime'], text=True).strip()
+        return 'darwin-'+subprocess.check_output(['/usr/sbin/sysctl','-n','kern.bootsessionuuid'],text=True).strip().lower()
     return Path('/proc/sys/kernel/random/boot_id').read_text().strip()
 
 
-def process_stamp(pid):
+def boot_matches(saved, current):
+    if saved==current:
+        return True
+    # Legacy releases used a timezone/NTP-sensitive kern.boottime rendering.
+    if sys.platform=='darwin' and saved and saved.startswith('{ sec = '):
+        old = re.search(r'sec\s*=\s*(\d+)',saved)
+        value = subprocess.check_output(['/usr/sbin/sysctl','-n','kern.boottime'],text=True)
+        now = re.search(r'sec\s*=\s*(\d+)',value)
+        return bool(old and now and old.group(1)==now.group(1))
+    return False
+
+
+def process_stamp(pid, utc=True):
     if pid < 2:
         return None
-    p = subprocess.run(['/bin/ps', '-p', str(pid), '-o', 'lstart=', '-o', 'stat='],
-                       capture_output=True, text=True, env={**os.environ, 'LC_ALL': 'C'})
+    env = {**os.environ,'LC_ALL':'C'}
+    if utc:
+        env['TZ'] = 'UTC'
+    else:
+        env.pop('TZ',None)
+    p = subprocess.run(['/bin/ps','-p',str(pid),'-o','lstart=','-o','stat='],
+                       capture_output=True,text=True,env=env)
     parts = p.stdout.strip().split()
     if len(parts) < 6 or parts[-1].startswith('Z'):
         return None
-    return ' '.join(parts[:-1])
+    return ('utc:' if utc else '')+' '.join(parts[:-1])
 
 
 def process_alive(pid, stamp):
-    return bool(stamp) and process_stamp(pid) == stamp
+    current = process_stamp(pid)
+    if not stamp or not current:
+        return False
+    if stamp.startswith('utc:'):
+        return current==stamp
+    if re.match(r'^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) ',stamp):
+        return current[4:]==stamp or process_stamp(pid,False)==stamp
+    return False
 
 
 def group_alive(pgid, machine_boot):
-    if not pgid or machine_boot != boot_id():
+    if not pgid or not boot_matches(machine_boot,boot_id()):
         return False
     p = subprocess.run(['/bin/ps', '-axo', 'pgid=,stat='], capture_output=True, text=True)
     if p.returncode:
@@ -247,10 +272,10 @@ class Manager:
         self.db.execute('DELETE FROM events WHERE seq < (SELECT COALESCE(MAX(seq),0)-1000 FROM events)')
 
     def owner_alive(self, r):
-        return r['boot'] == self.machine_boot and process_alive(r['owner_pid'], r['owner_start'])
+        return boot_matches(r['boot'],self.machine_boot) and process_alive(r['owner_pid'], r['owner_start'])
 
     def activity_alive(self, r):
-        if r['boot'] != self.machine_boot:
+        if not boot_matches(r['boot'],self.machine_boot):
             return False
         return (group_alive(r['activity_group'], r['boot']) if r['activity_group'] else
                 process_alive(r['activity_pid'] or 0, r['activity_start']))
@@ -258,14 +283,33 @@ class Manager:
     def sweep(self):
         """Inside transaction. Never recycle a live workload merely due to TTL."""
         now = time.time()
+        stamps = {}
+        def live(pid, stamp):
+            if pid not in stamps:
+                stamps[pid] = process_stamp(pid)
+            current = stamps[pid]
+            if stamp and current and not stamp.startswith('utc:') and re.match(r'^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) ',stamp):
+                if current[4:]==stamp:
+                    return True
+                key = (pid,'local')
+                if key not in stamps:
+                    stamps[key] = process_stamp(pid,False)
+                return stamps[key]==stamp
+            return bool(stamp) and current==stamp
+        def own(row):
+            return boot_matches(row['boot'],self.machine_boot) and live(row['owner_pid'],row['owner_start'])
         for r in self.db.execute('SELECT * FROM queue').fetchall():
-            if r['deadline'] < now or not self.owner_alive(r) or not process_alive(r['waiter_pid'], r['waiter_start']):
+            if r['deadline'] < now or not own(r) or not live(r['waiter_pid'], r['waiter_start']):
                 self.db.execute('DELETE FROM queue WHERE request=?', (r['request'],))
                 self.event('queue-reaped', session=r['session'])
         reaped = []
         for r in self.db.execute('SELECT * FROM leases').fetchall():
             busy = self.activity_alive(r)
-            if not self.owner_alive(r) and not busy:
+            legacy = r['boot'].startswith('{ sec = ')
+            if legacy:
+                # A legacy wall-clock identity cannot prove a live PID/group stale.
+                busy = busy or bool(process_stamp(r['owner_pid'])) or bool(r['activity_group'] and group_alive(r['activity_group'],self.machine_boot))
+            if not own(r) and not busy:
                 self.db.execute('DELETE FROM leases WHERE token=?', (r['token'],))
                 self.event('stale-reaped', r['resource'], r['session'])
                 reaped.append(r['resource'])
@@ -445,7 +489,7 @@ class Manager:
 
     def runtime(self, resource):
         r = self.db.execute('SELECT * FROM runtimes WHERE resource=?', (resource['id'],)).fetchone()
-        return dict(r) if r and r['spec'] == self.canonical(resource) and r['boot'] == self.machine_boot else None
+        return dict(r) if r and r['spec'] == self.canonical(resource) and boot_matches(r['boot'],self.machine_boot) else None
 
     def mark_runtime(self, resource, phase, pid=None):
         with self.transaction():

@@ -6,7 +6,7 @@ import signal
 import subprocess
 import sys
 import time
-from .core import ManagerError, group_alive, process_alive, process_stamp
+from .core import ManagerError, group_alive, process_alive, process_stamp, boot_matches
 
 _children = []  # Keep detached children until they can be reaped without blocking.
 
@@ -16,7 +16,7 @@ def stop(manager):
     if not row:
         return {'stopped':False}
     info = json.loads(row[0])
-    if info['boot']==manager.machine_boot and process_alive(info['pid'],info['start']):
+    if boot_matches(info['boot'],manager.machine_boot) and process_alive(info['pid'],info['start']):
         os.kill(info['pid'],signal.SIGTERM)
         deadline = time.monotonic()+5
         while time.monotonic()<deadline and process_alive(info['pid'],info['start']):
@@ -38,7 +38,7 @@ def ensure(manager):
         return {'enabled':False}
     row = manager.db.execute("SELECT value FROM meta WHERE key='watcher'").fetchone()
     info = json.loads(row[0]) if row else None
-    if info and info['boot']==manager.machine_boot and process_alive(info['pid'],info['start']):
+    if info and boot_matches(info['boot'],manager.machine_boot) and process_alive(info['pid'],info['start']):
         return {'enabled':True,'pid':info['pid']}
     logs = manager.state_dir/'logs'
     logs.mkdir(exist_ok=True,mode=0o700)

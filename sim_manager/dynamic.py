@@ -3,7 +3,7 @@ import hashlib
 import json
 import os
 import time
-from .core import ManagerError, process_alive
+from .core import ManagerError, process_alive, boot_matches
 from .monitor import admission
 
 
@@ -88,11 +88,13 @@ def retire_idle(manager,force=False):
     with manager.transaction():
         # Crash recovery for incomplete creation leaves a visible, quarantined row.
         for row in manager.db.execute("SELECT * FROM environments WHERE phase='creating'").fetchall():
-            if row['boot']!=manager.machine_boot or not process_alive(row['creator_pid'] or 0,row['creator_start']):
+            if not boot_matches(row['boot'],manager.machine_boot) or not process_alive(row['creator_pid'] or 0,row['creator_start']):
                 lease = manager.db.execute('SELECT * FROM leases WHERE resource=?',(row['resource'],)).fetchone()
                 if not lease or not manager.activity_alive(lease):
                     manager.db.execute("UPDATE environments SET phase='failed' WHERE resource=?",(row['resource'],))
-        manager.db.execute("UPDATE environments SET running=0,phase='ready',boot=? WHERE boot<>? AND phase IN ('ready','stopping')",(manager.machine_boot,manager.machine_boot))
+        for envrow in manager.db.execute("SELECT resource,boot FROM environments WHERE phase IN ('ready','stopping')").fetchall():
+            if not boot_matches(envrow['boot'],manager.machine_boot):
+                manager.db.execute("UPDATE environments SET running=0,phase='ready',boot=? WHERE resource=?",(manager.machine_boot,envrow['resource']))
         last = manager.db.execute("SELECT value FROM meta WHERE key='idle_check'").fetchone()
         if not force and last and now-float(last[0])<manager.config['monitor']['sample_seconds']:
             return None
