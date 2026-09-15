@@ -63,7 +63,7 @@ Use bounded, restartable test chunks. Scripts should handle SIGTERM by saving a 
 Fair yield returns **75** (`requeue_required`); the Skill must request a fresh lease at the tail for remaining validation. For commands explicitly known to be checkpointed/restartable, opt into automatic requeue:
 
 ```sh
-sim-manager run ios --session my-session --boot --requeue-on-yield --max-requeues 3 \
+sim-manager run ios --session my-session --project /absolute/project/path --boot --requeue-on-yield --max-requeues 3 \
   -- ./restartable-ui-test-chunk
 ```
 
@@ -118,17 +118,19 @@ All sessions must use the same state/config, including a custom `--state-dir` or
 
 ## CLI examples
 
+Pass the same canonical `--project` on every acquire/run. If omitted, the current working directory is used; session registration does not restore a saved project. Keep `--mode auto` to reuse your private environment during pressure-driven Traditional admission. Explicit `--mode traditional` selects the static pool instead.
+
 ```sh
 # Host build and unit tests first; runtime work only inside the lease.
-sim-manager run ios --session my-session --boot --budget-seconds 600 -- sh -eu -c '
+sim-manager run ios --session my-session --project /absolute/project/path --boot --budget-seconds 600 -- sh -eu -c '
   xcodebuild test-without-building -scheme MyApp -destination "id=$SIM_MANAGER_UDID"
 '
-sim-manager run android --session my-session --boot -- sh -eu -c '
+sim-manager run android --session my-session --project /absolute/project/path --boot -- sh -eu -c '
   adb -s "$SIM_MANAGER_SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk
   adb -s "$SIM_MANAGER_SERIAL" shell am start -n com.example.app/.MainActivity
   adb -s "$SIM_MANAGER_SERIAL" exec-out screencap -p > screenshot.png
 '
-sim-manager run ios --session my-session --foreground --boot -- ./visible-ui-test
+sim-manager run ios --session my-session --project /absolute/project/path --foreground --boot -- ./visible-ui-test
 sim-manager run gui --session my-session -- ./desktop-test
 sim-manager run ios --mode traditional --session my-session --boot -- ./device-test
 sim-manager enable --session my-session --prepare --json
@@ -205,7 +207,7 @@ Boot fails before launching a VM if an explicitly assigned AVD manifest has a mi
 
 ```sh
 set -eu
-eval "$(sim-manager acquire android --session '<saved-label>' --owner-pid "$$" --budget-seconds 60 --shell)"
+eval "$(sim-manager acquire android --session '<saved-label>' --project '/saved/absolute/project/path' --owner-pid "$$" --budget-seconds 60 --shell)"
 trap 'sim-manager release "$SIM_MANAGER_TOKEN" >/dev/null' EXIT
 trap 'exit 130' INT TERM HUP
 sim-manager repair-android-target "$SIM_MANAGER_TOKEN" --json

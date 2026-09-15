@@ -16,7 +16,7 @@ Use bootstrap to install the complete project once, or the installed version 2.0
 sim-manager enable --session '<actual-task-id>' --project '/actual/project/path' --prepare --json
 ```
 
-Save the returned session label, CLI and shared state path for every later call. If no task ID is available, let bootstrap/enable generate a label and retain it. Do not generate a new label per tool call. All projects on the Mac account use the same state/config. Registration records intent; supervised leases enforce actual reservations. Missing SDK readiness does not permit bypassing coordination.
+Save the session label, canonical absolute project path, CLI and shared state path for every later call. Pass both `--session` and `--project` explicitly on every acquire/run, including calls from other working directories. Registration does not supply a default project to subsequent requests; omitting `--project` uses the current working directory and may request a different environment. If no task ID is available, let bootstrap/enable generate a label and retain it. Do not generate a new label per tool call. All projects on the Mac account use the same state/config. Registration records intent; supervised leases enforce actual reservations. Missing SDK readiness does not permit bypassing coordination.
 
 New installations use **Dynamic Simulator Pool**. Each session + project + platform has a fixed private device/AVD, created lazily within a reserved budget. Preserve the project path and label. This isolates device data, not the entire host or foreground GUI. Existing configs without `mode` preserve **Traditional Mode**, the original shared-pool FIFO scheduler. Do not change shared configuration during active work or to bypass pressure.
 
@@ -27,13 +27,13 @@ Perform applicable static checks, builds and host unit tests before requesting a
 ## Preferred lifecycle: one supervised chunk
 
 ```sh
-sim-manager run ios --session '<saved-label>' --boot --timeout 300 --budget-seconds 600 -- sh -eu -c '
+sim-manager run ios --session '<saved-label>' --project '/saved/absolute/project/path' --boot --timeout 300 --budget-seconds 600 -- sh -eu -c '
   xcodebuild test-without-building -scheme MyApp -destination "id=$SIM_MANAGER_UDID"
 '
 ```
 
 ```sh
-sim-manager run android --session '<saved-label>' --boot --timeout 300 --budget-seconds 600 -- sh -eu -c '
+sim-manager run android --session '<saved-label>' --project '/saved/absolute/project/path' --boot --timeout 300 --budget-seconds 600 -- sh -eu -c '
   adb -s "$SIM_MANAGER_SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk
   adb -s "$SIM_MANAGER_SERIAL" shell am start -n com.example.app/.MainActivity
   # Add meaningful, explicitly targeted runtime assertions.
@@ -58,7 +58,7 @@ Only use assigned `SIM_MANAGER_UDID` / `SIM_MANAGER_SERIAL`. Never use `booted`,
 
 ## Pressure-aware fallback
 
-The watcher samples host memory pressure, normalized load and disk. Sustained pressure progresses **Dynamic → Constrained (pause creation) → Draining (reduce admission) → Traditional**. Recovery is slower and gradual. Accept the current admission limit. Do not force new environments or change caps to evade it.
+The watcher samples host memory pressure, normalized load and disk. Sustained pressure progresses **Dynamic → Constrained (pause creation) → Draining (reduce admission) → Traditional**. Recovery is slower and gradual. Accept the current admission limit. Keep `--mode auto` for pressure-aware reuse of your assigned private environment. A reported Traditional stage is an admission state; explicitly requesting `--mode traditional` instead selects the static pool. Do not force new environments or change caps to evade it.
 
 Downgrades preserve active leases and private assignments. Existing private environments can be reused serially under Traditional admission; new owners may receive configured Traditional fallback slots. Another session's private environment is never shared. Idle private VMs may be stopped while retaining data. Capacity/environment exhaustion means wait/timeout, not erase/reassign another environment.
 

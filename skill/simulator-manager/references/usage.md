@@ -6,7 +6,7 @@ Exit 75 requires finishing/checkpointing, release and a fresh FIFO-tail request 
 
 ```sh
 set -eu
-lease_env=$(sim-manager acquire ios --owner-pid "$$" --session 'saved-session-label' --shell)
+lease_env=$(sim-manager acquire ios --owner-pid "$$" --session 'saved-session-label' --project '/saved/absolute/project/path' --shell)
 eval "$lease_env"
 trap 'sim-manager release "$SIM_MANAGER_TOKEN" >/dev/null' EXIT
 trap 'exit 130' INT TERM HUP
@@ -17,7 +17,7 @@ sim-manager renew "$SIM_MANAGER_TOKEN" --lease-seconds 120 --json
 
 Only evaluate shell output. JSON output is one object; child output goes to stderr under `run --json`. Tokens are private capability credentials, never resource IDs/session names. Status omits tokens. A manual owner must remain alive and release in finally/trap; unknown external GUI work cannot be automatically judged complete. Expired live-owner manual leases are protected and cannot be renewed. Strict enforcement requires supervised run.
 
-New installs use Dynamic Simulator Pool: fixed private environment per saved label + project + platform, lazily created with capacity reserved before SDK work. Unique Android AVD, writable home and reserved port; unique iOS UDID. This is device-data isolation, not host/container isolation. Preserve the label and project path. Private environment data persists across leases/idle shutdown; it is never lent to another session. `max_environments` bounds persistent assignment count; failed creation remains quarantined.
+New installs use Dynamic Simulator Pool: fixed private environment per saved label + project + platform, lazily created with capacity reserved before SDK work. Unique Android AVD, writable home and reserved port; unique iOS UDID. This is device-data isolation, not host/container isolation. Pass the saved label and canonical absolute `--project` explicitly on every acquire/run. Omitting the project uses the current directory rather than session registration. Keep `--mode auto` to reuse private assignments during pressure fallback; explicit `--mode traditional` selects static resources. Private environment data persists across leases/idle shutdown; it is never lent to another session. `max_environments` bounds persistent assignment count; failed creation remains quarantined.
 
 Pressure steps through Dynamic, Constrained, Draining and Traditional. Traditional is the original static FIFO mode; old configs without mode retain it. Do not override pressure or change shared config during work. Stage reductions affect new admissions; active work finishes/yields safely. The watcher retires at most one idle private VM per sample, only with exact identity/provenance and a transactionally reserved stopping row. Release itself does not shut down a VM. Static fallback slots remain running for reuse.
 
