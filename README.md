@@ -244,3 +244,7 @@ python3 -m compileall -q sim_manager tests activate.py install.py
 ```
 
 Tests use isolated temporary state and fake SDK executables. They cover static FIFO/exclusion, parallel private creation, stable identities, private Android data/ports, total time including boot, bounded renewals, checkpoint yielding/requeue, gradual pressure/recovery, owned idle shutdown, crash/watchdog recovery, bootstrap and installation. [Validation report](VALIDATION.md) distinguishes simulated SDK tests from actual host verification. MIT licensed.
+
+## Unity ADB compatibility
+
+Unity may automatically stop shared ADB on Editor exit or terminate servers from another SDK, including during host-only work. Coordinate an Editor-idle window to disable both automatic termination controls; see [Unity guidance](skill/simulator-manager/references/unity.md). Bootstrap does not alter these user preferences. Share sanitized Unity failure logs, since error blocks can dump process environment values.
