@@ -134,6 +134,63 @@ class ActivationTests(unittest.TestCase):
             self.assertEqual(resource['kind'],'ios')
         m.close()
 
+    def fake_avd_create(self,argv,**kwargs):
+        home=Path(kwargs['env']['ANDROID_AVD_HOME'])
+        name=argv[argv.index('-n')+1]
+        content=Path(argv[argv.index('-p')+1]);content.mkdir()
+        (home/(name+'.ini')).write_text('avd.ini.encoding=UTF-8\npath='+str(content)+'\ntarget=android-0\n')
+        (content/'config.ini').write_text('image.sysdir.1='+argv[argv.index('-k')+1]+'\n')
+        return subprocess.CompletedProcess(argv,0,'','')
+
+    def android_image(self,version):
+        sdk=self.base/'sdk';image=sdk/('system-images/android-'+version+'/google_apis/arm64-v8a')
+        image.mkdir(parents=True);(image/'system.img').touch()
+        (image/'package.xml').write_text('<repository><localPackage path="system-images;android-'+version+';google_apis;arm64-v8a"/></repository>')
+        self.config['android_sdk']=str(sdk);self.write_config()
+
+    def test_fractional_android_image_target_and_numeric_version_selection(self):
+        from sim_manager.provision import android_resource
+        for version in ('36.9','36.10','36'):self.android_image(version)
+        m=Manager(self.state)
+        try:
+            with patch('sim_manager.provision.tool',return_value='fake-tool'),patch('sim_manager.provision.platform.machine',return_value='arm64'),patch('sim_manager.provision.subprocess.run',side_effect=self.fake_avd_create):
+                resource=android_resource(m,reserved_port=5566)
+            self.assertEqual(resource['api_level'],36)
+            self.assertEqual(resource['system_image'],'system-images;android-36.10;google_apis;arm64-v8a')
+            manifest=Path(resource['avd_home'])/(resource['avd']+'.ini')
+            self.assertIn('target=android-36\n',manifest.read_text())
+            self.assertNotIn('target=android-0',manifest.read_text())
+            self.assertIn('36.10',(manifest.with_suffix('.avd')/'config.ini').read_text())
+        finally:m.close()
+
+    def test_new_avd_target_normalization_preserves_data_and_valid_extension(self):
+        from sim_manager.provision import normalize_created_android_target
+        home=self.state/'avds';home.mkdir();content=home/'Test.avd';content.mkdir()
+        data=content/'userdata.img';data.write_bytes(b'preserved-userdata')
+        manifest=home/'Test.ini';manifest.write_text('path='+str(content)+'\ntarget=android-36-ext20\nother=value\n')
+        original=manifest.read_bytes();normalize_created_android_target(home,'Test',36)
+        self.assertEqual(manifest.read_bytes(),original)
+        manifest.write_text('path='+str(content)+'\ntarget=android-36.1\nother=value\n')
+        normalize_created_android_target(home,'Test',36)
+        self.assertIn('other=value',manifest.read_text());self.assertIn('target=android-36\n',manifest.read_text())
+        self.assertEqual(data.read_bytes(),b'preserved-userdata')
+
+    def test_new_avd_manifest_outside_directory_and_name_collision_are_refused(self):
+        from sim_manager.provision import android_resource,normalize_created_android_target
+        from sim_manager.core import ManagerError
+        home=self.state/'avds';home.mkdir();(home/'Test.avd').mkdir()
+        (home/'Test.ini').write_text('path=/outside\ntarget=android-0\n')
+        with self.assertRaises(ManagerError):normalize_created_android_target(home,'Test',36)
+        self.assertIn('target=android-0',(home/'Test.ini').read_text())
+        self.android_image('36.1');m=Manager(self.state)
+        try:
+            with patch('sim_manager.provision.tool',return_value='fake-tool'),patch('sim_manager.provision.platform.machine',return_value='arm64'),patch('sim_manager.provision.secrets.token_hex',return_value='collision'),patch('sim_manager.provision.subprocess.run') as run:
+                (home/'Codex_Shared_collision.ini').write_text('existing-data')
+                with self.assertRaises(ManagerError):android_resource(m,reserved_port=5566)
+                run.assert_not_called()
+                self.assertEqual((home/'Codex_Shared_collision.ini').read_text(),'existing-data')
+        finally:m.close()
+
     def test_android_creation_isolated_avd_home_and_existing_image(self):
         from sim_manager.provision import android_resource
         sdk=self.base/'sdk'
@@ -144,7 +201,7 @@ class ActivationTests(unittest.TestCase):
         self.config['android_sdk']=str(sdk)
         self.write_config()
         m=Manager(self.state)
-        with patch('sim_manager.provision.tool',return_value='fake-tool'),patch('sim_manager.provision.platform.machine',return_value='arm64'),patch('sim_manager.provision.ports_free',return_value=True),patch('sim_manager.provision.subprocess.run',return_value=subprocess.CompletedProcess([],0,'','')) as run:
+        with patch('sim_manager.provision.tool',return_value='fake-tool'),patch('sim_manager.provision.platform.machine',return_value='arm64'),patch('sim_manager.provision.ports_free',return_value=True),patch('sim_manager.provision.subprocess.run',side_effect=self.fake_avd_create) as run:
             resource=android_resource(m)
             argv=run.call_args.args[0]
             self.assertEqual(argv[:3],['fake-tool','create','avd'])

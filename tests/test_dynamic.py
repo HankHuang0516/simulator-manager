@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-from sim_manager.core import Manager, OwnershipError, WaitTimeout, load_config, process_stamp
+from sim_manager.core import Manager, ManagerError, OwnershipError, WaitTimeout, load_config, process_stamp
 from sim_manager.monitor import advance, update, admission
 from sim_manager.dynamic import retire_idle
 from sim_manager.watchdog import ensure, stop, tick
@@ -43,7 +43,8 @@ elif name=='avdmanager':
  assert args[:2]==['create','avd']
  avd=args[args.index('-n')+1];home=Path(os.environ['ANDROID_AVD_HOME'])
  (home/(avd+'.ini')).write_text('path='+args[args.index('-p')+1]+'\n')
- Path(args[args.index('-p')+1]).mkdir()
+ content=Path(args[args.index('-p')+1]);content.mkdir()
+ (content/'config.ini').write_text('image.sysdir.1 = '+args[args.index('-k')+1].replace(';','/')+'/\n')
 elif name=='emulator':
  if args==['-list-avds']:print('\n'.join(p.stem for p in Path(os.environ['ANDROID_AVD_HOME']).glob('*.ini')))
  else:
@@ -74,7 +75,7 @@ class DynamicTests(unittest.TestCase):
         for name in ('xcrun','adb','emulator','avdmanager'):
             path=self.state/name;path.write_text('#!'+sys.executable+'\n'+FAKE);path.chmod(0o755);tools[name]=str(path)
         sdk=self.state/'sdk';image=sdk/'system-images/android-40/google_apis'/('arm64-v8a' if __import__('platform').machine().lower() in ('arm64','aarch64') else 'x86_64')
-        image.mkdir(parents=True);(image/'system.img').touch()
+        image.mkdir(parents=True);(image/'system.img').touch();(image/'source.properties').write_text('AndroidVersion.ApiLevel=40\n')
         (image/'package.xml').write_text('<sdk><localPackage path="system-images;android-40;google_apis;'+image.name+'"/></sdk>')
         self.config={'version':1,'mode':'dynamic','global_capacity':1,'lease_seconds':10,'poll_seconds':.02,
                      'tools':tools,'android_sdk':str(sdk),'policy':{'max_hold_seconds':10,'waiter_slice_seconds':10,'yield_grace_seconds':.5},
@@ -246,6 +247,42 @@ class DynamicTests(unittest.TestCase):
         con=sqlite3.connect(self.state/'sdk.sqlite');calls=[json.loads(r[0]) for r in con.execute("SELECT args FROM calls WHERE name='xcrun'")];con.close()
         shutdown=[c for c in calls if c[:2]==['simctl','shutdown']]
         self.assertEqual(shutdown,[['simctl','shutdown',a['resource']['udid']]])
+
+    def test_leased_private_android_target_repair_preserves_data(self):
+        from sim_manager.provision import repair_leased_android_target
+        a=self.lease(pool='android');m=Manager(self.state)
+        try:
+            home=Path(a['resource']['avd_home']);name=a['resource']['avd'];manifest=home/(name+'.ini')
+            manifest.write_text(manifest.read_text().replace('target=android-40','target=android-0'))
+            data=home/(name+'.avd')/'userdata.img';data.write_bytes(b'preserve-this')
+            with patch('sim_manager.provision.ports_free',return_value=True):result=repair_leased_android_target(m,a['token'])
+            self.assertTrue(result['repaired']);self.assertEqual(result['target'],'android-40')
+            self.assertEqual(data.read_bytes(),b'preserve-this');self.assertIn('target=android-40',manifest.read_text())
+            self.assertEqual(m.get_lease(a['token'])['renewals'],0)
+        finally:m.close();self.release(a['token'])
+
+    def test_android_target_repair_rejects_unassigned_environment(self):
+        from sim_manager.provision import repair_leased_android_target
+        a=self.lease(pool='android');m=Manager(self.state)
+        try:
+            with m.transaction():m.db.execute('DELETE FROM environments WHERE resource=?',(a['resource_id'],))
+            with self.assertRaises(ManagerError):repair_leased_android_target(m,a['token'])
+        finally:m.close();self.release(a['token'])
+
+    def test_android_target_repair_rejects_busy_vm_ports_and_external_image(self):
+        from sim_manager.provision import repair_leased_android_target
+        a=self.lease(pool='android');m=Manager(self.state)
+        try:
+            with patch('sim_manager.provision.ports_free',return_value=False):
+                with self.assertRaises(ManagerError):repair_leased_android_target(m,a['token'])
+            with m.transaction():m.db.execute('UPDATE environments SET running=1 WHERE resource=?',(a['resource_id'],))
+            with self.assertRaises(ManagerError):repair_leased_android_target(m,a['token'])
+            with m.transaction():m.db.execute('UPDATE environments SET running=0 WHERE resource=?',(a['resource_id'],))
+            content=Path(a['resource']['avd_home'])/(a['resource']['avd']+'.avd')
+            (content/'config.ini').write_text('image.sysdir.1=/outside/sdk\n')
+            with patch('sim_manager.provision.ports_free',return_value=True):
+                with self.assertRaises(ManagerError):repair_leased_android_target(m,a['token'])
+        finally:m.close();self.release(a['token'])
 
     def test_zero_wait_attempt_survives_slow_local_housekeeping(self):
         from sim_manager import dynamic

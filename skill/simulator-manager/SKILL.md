@@ -10,7 +10,7 @@ Use the complete `sim-manager` CLI for runtime resources. If absent from PATH, r
 ## Enable this session
 
 Follow `https://github.com/HankHuang0516/simulator-manager/blob/main/SESSION_START.md`.
-Use bootstrap to install the complete project once, or the installed version 2.0.0 CLI:
+Use bootstrap to install the complete project once, or the installed version 2.0.1 CLI:
 
 ```sh
 sim-manager enable --session '<actual-task-id>' --project '/actual/project/path' --prepare --json
@@ -73,3 +73,7 @@ On queue timeout, report the exact unverified runtime checks and retry through t
 ## Dashboard
 
 When asked to view scheduling, run the installed CLI `sim-manager ui`. On macOS 13+ it lazily builds and opens a native floating SwiftUI panel using Xcode command line tools. It uses the same shared state, updates every two seconds, and has no resource control buttons. Viewing status does not require acquiring a simulator. Registered sessions are adoption records, not proof of live work. The manager watcher operates independently of the panel.
+
+## Android target recovery
+
+Version 2.0.1 corrects new AVD root targets to the installed image's integer major API, keeping Major.Minor image paths. Do not replace `android-0` with a decimal/unknown API. If boot reports an invalid root target on an existing private AVD, acquire a short valid manual lease with a verified durable owner, set release traps/finally, and run `repair-android-target TOKEN` before `boot TOKEN`. This command only repairs your assigned idle private manifest after verifying no VM/work/occupied ports and valid installed SDK image metadata. It changes no userdata, SDK files, signatures or safety settings and does not reset deadlines. Rejecting a busy/external/ambiguous environment is a blocker to resolve through its owner, not permission to stop it. No background migration or cross-session repair is allowed.

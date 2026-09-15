@@ -7,6 +7,7 @@ from pathlib import Path
 import plistlib
 import subprocess
 import sys
+from . import __version__
 
 
 def build(root=None):
@@ -15,7 +16,7 @@ def build(root=None):
     root = Path(root or Path(__file__).resolve().parent.parent).resolve()
     source = root/'dashboard/SimulatorManager.swift'
     app = root/'Simulator Manager.app'
-    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    digest = hashlib.sha256(source.read_bytes()+__version__.encode()).hexdigest()
     with (root/'.dashboard-build.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
         exe = app/'Contents/MacOS/SimulatorManager'
@@ -37,7 +38,7 @@ def build(root=None):
         info = {'CFBundleName':'Simulator Manager','CFBundleDisplayName':'Simulator Manager',
                 'CFBundleIdentifier':'com.hankhuang.simulator-manager.dashboard',
                 'CFBundleExecutable':'SimulatorManager','CFBundlePackageType':'APPL',
-                'CFBundleShortVersionString':'2.0.0','CFBundleVersion':'2',
+                'CFBundleShortVersionString':__version__,'CFBundleVersion':'2',
                 'LSMinimumSystemVersion':'13.0','LSUIElement':True,
                 'NSHighResolutionCapable':True}
         with (app/'Contents/Info.plist').open('wb') as f:

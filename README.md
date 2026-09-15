@@ -42,7 +42,7 @@ This is device-data isolation similar to dedicated development environments. It 
 
 Private identity does not mean permanent occupancy. Keep the returned session label stable, including across tool calls. A new label or different project path creates a different environment. At `max_environments`, new owners wait/timeout; existing environments are never silently erased or reassigned. Failed partial creations remain visible and quarantined for operator inspection.
 
-Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 2.0.0.
+Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 2.0.1.
 
 ## Time limits and fair yielding
 
@@ -196,6 +196,23 @@ Never use `booted`, implicit adb targets, `shutdown all`, `erase all`, `adb kill
 One Mac account and local storage only; do not put the shared database on NFS/iCloud. This is cooperative coordination, not interception of arbitrary SDK callers. Process-group escape, external automation workers and rare ambiguous PID reuse remain outside strict protection. Do not delete state while workers run.
 
 [Apple CLI reference](https://developer.apple.com/documentation/xcode/xcode-command-line-tool-reference) · [Android emulator and writable AVD data](https://developer.android.com/studio/run/emulator-commandline) · [ADB](https://developer.android.com/tools/adb) · [avdmanager](https://developer.android.com/tools/avdmanager)
+
+## Android target compatibility and recovery
+
+Some installed `avdmanager` versions create `target=android-0` for Major.Minor images such as Android 36.1. That can disable HVF on Apple Silicon even when hardware acceleration checks and vendor entitlements pass. New AVD creation now validates local manifests and writes an integer root API target (`android-36`) while preserving the exact 36.1 system image and device data. Image selection compares numeric major/minor/extension versions. [Official QEMU API parsing](https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev/android/emu/avd/src/android/avd/info.c), [official arm64 HVF gate](https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-32-release/android-qemu2-glue/main.cpp).
+
+Boot fails before launching a VM if an explicitly assigned AVD manifest has a missing, zero or unparseable numeric target. Existing private AVDs are **not rewritten in the background**. The owner can request metadata-only recovery while holding a valid lease, before any VM or tracked work starts:
+
+```sh
+set -eu
+eval "$(sim-manager acquire android --session '<saved-label>' --owner-pid "$$" --budget-seconds 60 --shell)"
+trap 'sim-manager release "$SIM_MANAGER_TOKEN" >/dev/null' EXIT
+trap 'exit 130' INT TERM HUP
+sim-manager repair-android-target "$SIM_MANAGER_TOKEN" --json
+sim-manager boot "$SIM_MANAGER_TOKEN" --timeout 40
+```
+
+Repair requires the assigned private environment, no running VM or tracked work, free pinned ports and an installed image under the configured SDK with valid API metadata. It preserves userdata/configuration/image files and changes only the root manifest target atomically. It refuses static/external resources and ambiguous activity. The original use deadline and renewal count remain intact. Never repair another session's AVD or change SDK security/signatures as a workaround.
 
 ## Floating dashboard
 

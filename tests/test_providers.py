@@ -159,6 +159,16 @@ class ProviderTests(unittest.TestCase):
         self.assertIn('outside manager',p.stderr)
         self.assertEqual(self.status()['leases'],[])
 
+    def test_invalid_android_target_fails_before_launch_and_releases(self):
+        home=self.state/'avds';home.mkdir();(home/'DedicatedAVD.ini').write_text('target=android-0\n')
+        self.config['pools']['android']['resources'][0]['avd_home']=str(home)
+        (self.state/'config.json').write_text(json.dumps(self.config))
+        p=self.cli('run','android','--boot','--json','--',sys.executable,'-c','raise SystemExit(99)')
+        self.assertEqual(p.returncode,1,p.stdout+p.stderr);self.assertTrue(json.loads(p.stdout)['released'])
+        self.assertIn('target is invalid',p.stderr)
+        self.assertFalse(any(c[0]=='fake-emulator' and c[1]!=['-list-avds'] for c in self.calls()))
+        self.assertEqual(self.status()['leases'],[])
+
     def test_low_disk_defers_new_boot_and_releases_without_launch(self):
         self.config['monitor']['low_disk_gib']=1000000
         (self.state/'config.json').write_text(json.dumps(self.config))

@@ -61,7 +61,7 @@ def parser():
             s.add_argument('--boot-timeout', type=float, default=180)
             s.add_argument('--command-timeout', type=float, default=600)
             # Commands must follow --. Parse separately so options before -- work.
-    for name in ('release','renew','boot'):
+    for name in ('release','renew','boot','repair-android-target'):
         s = subs.add_parser(name, parents=[common])
         s.add_argument('token', nargs='?', default=os.environ.get('SIM_MANAGER_TOKEN'))
         if name == 'renew':
@@ -129,7 +129,7 @@ def main(argv=None):
             from .dashboard import launch
             output(launch(a.state_dir,a.build_only),a.format)
             return 0
-        m = Manager(a.state_dir, a.config, allow_saved_config=a.action in ('release','renew','status','cleanup','boot','_provider','_create','watch'))
+        m = Manager(a.state_dir, a.config, allow_saved_config=a.action in ('release','renew','status','cleanup','boot','repair-android-target','_provider','_create','watch'))
         if a.action == 'enable':
             result = m.enable(a.session,a.project,a.owner_pid)
             if a.prepare:
@@ -183,13 +183,16 @@ def main(argv=None):
         elif a.action == 'watch':
             from .watchdog import watch,stop
             result = stop(m) if a.stop else watch(m,a.once)
-        elif a.action in ('release','renew','boot','_provider'):
+        elif a.action in ('release','renew','boot','repair-android-target','_provider'):
             if not a.token:
                 raise ManagerError('Pass a lease token or set SIM_MANAGER_TOKEN')
             if a.action == 'release':
                 result = m.release(a.token)
             elif a.action == 'renew':
                 result = m.renew(a.token, a.lease_seconds)
+            elif a.action == 'repair-android-target':
+                from .provision import repair_leased_android_target
+                result = repair_leased_android_target(m,a.token)
             elif a.action == '_provider':
                 r = m.get_lease(a.token)
                 providers.boot(m, json.loads(r['spec']), a.timeout)

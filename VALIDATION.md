@@ -1,6 +1,6 @@
 # Validation report
 
-Validated on September 15, 2026. Version 2.0.0.
+Validated on September 15, 2026. Version 2.0.1.
 
 ## Local environment
 
@@ -43,3 +43,7 @@ Pause new callers, drain leases/queue and stop the verified watcher before insta
 ## Native dashboard
 
 The SwiftUI floating panel compiled on Apple Silicon with Swift 6.3.3 targeting macOS 13. Actual accessibility state and screenshot showed live task allocations, countdowns, pressure mode transitions and host metrics. Pin/unpin and session disclosure controls were exercised. The sample-data preview was rendered by the native app, not a mock web page. The macOS CI job also compiles the dashboard without launching it.
+
+## Android root target regression
+
+The Anthill task demonstrated the startup cause: avdmanager had produced target=android-0 for an Android 36.1 image. Correcting only its private manifest to android-36 preserved the 36.1 image and yielded sys.boot_completed=1, ro.build.version.sdk=36 and exit 0 / released true. No SDK security/signature changes were needed. This confirms boot readiness for that task, not game UI validation. New creation validates target/manifest paths, preserves numeric image versions and data, refuses name collisions, and offers explicit leased private target repair with idle/port/image provenance checks. The expanded suite contains 76 tests; local/CI results are recorded after execution.

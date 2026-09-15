@@ -1,6 +1,7 @@
 """Only explicit device IDs/serials. Private idle shutdown only; never erase or kill a shared server."""
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import socket
@@ -102,6 +103,13 @@ def boot(manager, resource, timeout=180):
         manager.mark_runtime(resource, 'ready')
         return
     adb, emulator = tool(manager, 'adb'), tool(manager, 'emulator')
+    if resource.get('avd_home'):
+        manifest = Path(resource['avd_home'])/(resource['avd']+'.ini')
+        from .provision import ini_fields
+        fields = ini_fields(manifest.read_text())
+        target = re.fullmatch(r'android-(\d+)(?:-ext\d+)?',fields.get('target','').strip())
+        if not target or int(target.group(1))<3:
+            raise ManagerError('Android AVD target is invalid. New AVDs are corrected at creation; for an idle private AVD, acquire a lease and run repair-android-target TOKEN before boot. No VM was launched.')
     env = {**os.environ}
     if resource.get('avd_home'):
         env['ANDROID_AVD_HOME'] = os.path.expanduser(resource['avd_home'])
