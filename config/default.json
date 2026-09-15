@@ -4,8 +4,41 @@
   "lease_seconds": 900,
   "poll_seconds": 0.25,
   "pools": {
-    "ios": {"capacity": 1, "resources": []},
-    "android": {"capacity": 1, "resources": []},
-    "gui": {"capacity": 1, "resources": [{"id": "desktop-gui", "kind": "generic", "cost": 1}]}
+    "ios": {
+      "capacity": 1,
+      "resources": []
+    },
+    "android": {
+      "capacity": 1,
+      "resources": []
+    },
+    "gui": {
+      "capacity": 1,
+      "resources": [
+        {
+          "id": "desktop-gui",
+          "kind": "generic",
+          "cost": 1
+        }
+      ]
+    }
+  },
+  "mode": "dynamic",
+  "policy": {
+    "max_hold_seconds": 600,
+    "max_renewals": 3,
+    "waiter_slice_seconds": 120,
+    "yield_grace_seconds": 10
+  },
+  "dynamic": {
+    "max_parallel": 3,
+    "max_environments": 24,
+    "idle_shutdown_seconds": 120
+  },
+  "monitor": {
+    "sample_seconds": 2,
+    "bad_samples": 3,
+    "good_samples": 10,
+    "daemon": true
   }
 }

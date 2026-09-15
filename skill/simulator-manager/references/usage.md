@@ -1,28 +1,26 @@
-# Manual lease and recovery
+# Policy, manual leases and recovery
 
-`run` is the safe default for one-shot Codex shells. For a single durable shell:
+`run` is preferred: one total clock includes device creation, boot and validation. Default hard use budget 600 seconds, at most 3 actual extensions, waiter slice 120 seconds and checkpoint window 10 seconds. Renew cannot revive expiry or extend hard/yield deadlines. `--budget-seconds` can shorten the request. `--foreground` serializes desktop automation without nested GUI leases.
+
+Exit 75 requires finishing/checkpointing, release and a fresh FIFO-tail request for remaining steps. `--requeue-on-yield` is only for explicitly restartable commands; arbitrary SDK side effects cannot be rolled back automatically. Cancellation sends SIGTERM then SIGKILL to the registered owned group, never the session owner. Surviving uninterruptible work stays reserved until confirmed dead.
 
 ```sh
 set -eu
-# $$ identifies this shell, which must stay alive throughout the lease.
-lease_env=$(sim-manager acquire ios --owner-pid "$$" --session 'project-task' --shell --timeout 300)
+lease_env=$(sim-manager acquire ios --owner-pid "$$" --session 'saved-session-label' --shell)
 eval "$lease_env"
 trap 'sim-manager release "$SIM_MANAGER_TOKEN" >/dev/null' EXIT
 trap 'exit 130' INT TERM HUP
-sim-manager boot "$SIM_MANAGER_TOKEN" --timeout 180
-# Run tests synchronously and explicitly target $SIM_MANAGER_UDID.
-# For longer manual work, renew from this shell or its orchestrator.
-sim-manager renew "$SIM_MANAGER_TOKEN" --lease-seconds 900 >/dev/null
+sim-manager boot "$SIM_MANAGER_TOKEN"
+# Work synchronously, use explicit targets, finish before reported deadlines.
+sim-manager renew "$SIM_MANAGER_TOKEN" --lease-seconds 120 --json
 ```
 
-Never `eval` human/JSON output. `--shell` uses shell-escaped exports. Tokens are private capabilities, not resource IDs or session labels; `status` never prints them. `--json` gives a single JSON object; errors have `error` and `code`. `run --json` sends child output to stderr to keep stdout machine-readable.
+Only evaluate shell output. JSON output is one object; child output goes to stderr under `run --json`. Tokens are private capability credentials, never resource IDs/session names. Status omits tokens. A manual owner must remain alive and release in finally/trap; unknown external GUI work cannot be automatically judged complete. Expired live-owner manual leases are protected and cannot be renewed. Strict enforcement requires supervised run.
 
-Manual lease TTL expiry prevents new boot/work API calls but does not transfer a device from a live owner. Renew or release. This deliberately avoids stealing a device from a suspended or slow owner. A manual caller must hold its owner alive until all untracked work finishes. Only supervised `run` tracks descendants; detached daemons, external GUI automation workers, and manually launched processes are outside that protection.
+New installs use Dynamic Simulator Pool: fixed private environment per saved label + project + platform, lazily created with capacity reserved before SDK work. Unique Android AVD, writable home and reserved port; unique iOS UDID. This is device-data isolation, not host/container isolation. Preserve the label and project path. Private environment data persists across leases/idle shutdown; it is never lent to another session. `max_environments` bounds persistent assignment count; failed creation remains quarantined.
 
-`status --json` shows owner PID/start, project, session, expiry, operation, ordered queue, and recent bounded audit events. `cleanup --json` removes dead queue waiters and reservations whose owner and registered activity have both exited. Every acquire/status/cleanup also performs this reclamation; no background daemon is required. A reboot invalidates old process identities. PID start timestamps and boot identity avoid ordinary PID reuse; if a process-group number is reused ambiguously, reservation is retained conservatively until that group ends or the host reboots.
+Pressure steps through Dynamic, Constrained, Draining and Traditional. Traditional is the original static FIFO mode; old configs without mode retain it. Do not override pressure or change shared config during work. Stage reductions affect new admissions; active work finishes/yields safely. The watcher retires at most one idle private VM per sample, only with exact identity/provenance and a transactionally reserved stopping row. Release itself does not shut down a VM. Static fallback slots remain running for reuse.
 
-The default directory is shared across projects for the same macOS account, not across different users or different hosts. It contains `config.json`, SQLite database/WAL files, and Android logs. Keep it on local storage, not NFS/iCloud-synced storage. Restrictive user permissions protect capabilities. Do not delete the database while workers are running.
+`status --json` includes scheduler metrics/stage, policy, owner/deadlines/renewals, environments, ordered queue and audit events. `cleanup --json` reaps proven-dead work and performs one maintenance tick. `watch --once` manually samples/maintains; `watch --stop` stops only the verified managed watcher. Activation/dynamic run starts one flock-protected watcher unless `monitor.daemon: false`. A dead supervisor with live same-group work stays reserved until completion/deadline; watcher cancels only the tracked group. A host reboot invalidates process/runtime identities. Partial creation and ambiguous PID reuse fail closed; interrupted idle shutdown is retried only after the stopper dies and provenance is rechecked.
 
-Pool capacity limits simultaneous reservations (not the number of booted VMs); a global weighted budget bounds total reservations. FIFO is strict within a pool. Across pools, the oldest satisfiable pool head gets the available budget, so a blocked Android head does not idle an available iOS resource. Independent pools can progress concurrently. Avoid acquiring another resource while holding one.
-
-Boot integrations never stop a VM. iOS uses only its pinned UDID; Android uses its pinned AVD and even console port. Boot failure releases the lease but may leave a manager-started runtime running; subsequent boot can recover it. If an externally started runtime is rejected, select a different dedicated device or finish that external work yourself. Do not change `allow_attach` to bypass an active owner.
+One macOS account, one shared local state directory: `~/Library/Application Support/simulator-manager`. Use the same custom state for every project/session. Keep SQLite/WAL, logs, private AVD homes and locks on local storage. Never delete the database while work runs. Builds do not need reservations unless runtime-dependent. No implicit `booted`, untargeted adb, shutdown-all, erase or kill-server operations are allowed.

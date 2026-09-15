@@ -1,6 +1,6 @@
 ---
 name: simulator-manager
-description: Enable cooperative sharing of macOS simulators and GUI test resources across Codex sessions using a common FIFO scheduler.
+description: Enable cooperative sharing of macOS simulators and GUI test resources across Codex sessions using a private Dynamic Simulator Pool, pressure-aware Traditional FIFO fallback, bounded occupancy and safe requeue.
 ---
 
 # Simulator manager — GitHub entry point

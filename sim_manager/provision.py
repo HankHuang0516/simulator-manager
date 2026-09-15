@@ -63,7 +63,7 @@ def sdk_home(manager):
                 Path.home()/'Library/Android/sdk').expanduser().resolve()
 
 
-def android_resource(manager):
+def android_resource(manager, reserved_port=None, private_home=None):
     tool(manager,'adb')
     tool(manager,'emulator')
     avdmanager = tool(manager,'avdmanager')
@@ -86,13 +86,13 @@ def android_resource(manager):
     if not images:
         raise ManagerError(f'No installed {arch} Android system image; install one in SDK Manager first')
     used = {r['port'] for p in manager.config['pools'].values() for r in p['resources'] if r['kind']=='android'}
-    port = next((p for p in range(5556,5683,2) if p not in used and ports_free(p)),None)
+    port = reserved_port if reserved_port is not None else next((p for p in range(5556,5683,2) if p not in used and ports_free(p)),None)
     if port is None:
         raise ManagerError('No unoccupied Android console/adb port pair available')
     suffix = secrets.token_hex(6)
     name = f'Codex_Shared_{suffix}'
-    home = manager.state_dir/'avds'
-    home.mkdir(exist_ok=True,mode=0o700)
+    home = private_home or manager.state_dir/'avds'
+    home.mkdir(parents=True,exist_ok=True,mode=0o700)
     env = {**os.environ,'ANDROID_HOME':str(sdk),'ANDROID_AVD_HOME':str(home)}
     # No --force, no download, no mutation of ~/.android/avd.
     command = [avdmanager,'create','avd','-n',name,'-k',max(images)[1],'-p',str(home/(name+'.avd'))]

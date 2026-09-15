@@ -1,42 +1,41 @@
 # Validation report
 
-Validated on September 15, 2026.
+Validated on September 15, 2026. Version 2.0.0.
 
 ## Local environment
 
 Apple Silicon arm64, macOS 26.6.2, Python 3.14.5, SQLite 3.53.4, Xcode 26.6 (17F113).
 
-## Results
+## Automated coverage
 
-- **41 tests passed** with `python3 -m unittest discover -s tests -v`.
-- Two simultaneous bootstrap processes installed once, registered both sessions, and reused the same shared state.
-- Repeated bootstrap preserved existing pool configuration byte-for-byte.
-- Dedicated provisioning tests verified iOS creation without boot, private Android AVD home, installed system-image selection, paused-pool preservation, deferred setup during active work, and useful missing-SDK readiness results.
-- Multi-process FIFO and observed workload intervals verified resource exclusion, pool capacity, weighted shared budget, and progress around a blocked head in another pool.
-- Crash/interruption tests verified dead-owner reclamation, surviving child/grandchild protection after SIGKILL, cancellation after SIGTERM, live-owner TTL protection, and gate EOF before workload execution.
-- The previous SIGTERM stress pass completed 20/20 repetitions; Darwin's empty/zombie-only process-group EPERM case was addressed.
-- Fake executable SDK adapters verified pinned UDID/AVD/serial/port, runtime reuse, external-device refusal, duplicate-AVD refusal, and lease release on boot failure/timeout.
-- Installation was exercised in temporary paths containing spaces, including executable symlink use, managed upgrades, config preservation, and overwrite refusal.
-- Root and installed Skill frontmatter passed the `skill-creator` validator.
-- All Python sources parsed with Python 3.9 grammar; both shell entry points passed `sh -n`.
-- The English SVG was rendered to a 2200 × 2200 PNG and visually inspected for text, branch arrows, layout, and clipping.
+**61 tests passed locally**: the original 41 tests plus 20 dynamic/policy/watchdog tests, including both platform idle shutdown and interrupted shutdown recovery.
 
-## Real SDK scope
+- Cross-process FIFO, exclusion, observed intervals, weighted capacities and blocked-head progress.
+- Three parallel private creations reserve capacity before SDK calls; a fourth cannot exceed admission.
+- Stable per-session/project iOS identities; distinct Android AVDs, writable homes and transactionally reserved ports.
+- A single total deadline across creation, boot and validation, short boot budgets, bounded real renewals and no-op renewal allowance.
+- Safe waiter yielding, exit 75 and explicitly opted-in FIFO-tail automatic requeue.
+- Gradual pressure/recovery hysteresis and immediate creation pause on critical telemetry.
+- Active environment protection, exact owned idle iOS shutdown, preserved identity and external/provenance refusal.
+- Watcher singleton/restart, deadline cancellation of a live orphan group after supervisor SIGKILL and host reboot running-flag invalidation.
+- Bootstrap/config preservation, managed install/upgrade in paths with spaces, shell/JSON output and SDK errors.
 
-Actual `xcodebuild -version`, `xcrun simctl help boot`, `bootstatus`, and read-only `simctl list devices --json` succeeded. The previous inventory contained 23 available devices and one booted device. No existing personal device was added to the manager, booted, shut down, or erased.
+SDK automated tests use isolated fake executable tools and temporary state; they do not boot personal devices. Both Skills pass the skill-creator validator. All Python files parse with Python 3.9 grammar, shell entry points pass `sh -n`, and `git diff --check` passes. The English SVG renders to a visually inspected 2200 × 2200 PNG.
 
-Android tools were absent from the tested shell PATH. Android behavior and provisioning were validated with isolated fake tools/mocks. No claim is made that a real Android emulator or application UI was tested.
+## Real macOS SDK exercise
 
-The new automatic provisioning path was tested without creating real devices. A session using `enable --prepare` will attempt dedicated setup using its installed SDKs and report actual platform readiness. Run the project's own device-targeted tests to complete live end-to-end verification.
+A separate temporary shared state created a **new** iOS device using the installed iOS 26.5 runtime, recorded its exact UDID and manager boot provenance, and attempted supervised startup. Host telemetry then showed approximately 1.9 GiB free disk and high normalized load; the controller correctly progressed to Traditional Mode while keeping the active allocation protected.
 
-## Automated checks
+The validation supervisor was deliberately interrupted before boot readiness completed. Its tracked boot workload exited, the lease was released, and manager idle maintenance successfully shut down only that newly created device and verified Shutdown state. The isolated fixture was subsequently removed by its exact known test-only UDID. No personal/pre-existing device was adopted, stopped or erased.
 
-The repository includes GitHub Actions jobs for Python 3.9 on Ubuntu and Python 3.14 on macOS. [View current workflow results](https://github.com/HankHuang0516/simulator-manager/actions/workflows/tests.yml). Local validation does not imply that future workflow runs pass.
+This verifies real creation, startup/interruption handling, lease release, pressure fallback and exact-device idle shutdown. It **does not claim successful app UI validation or completed live iOS boot readiness**. The complete boot/work timing path is covered with fake SDK executables. Run the project's device-targeted checks on a host with sufficient resources for app verification.
 
-## Boundaries
+Android tools were absent from the tested shell PATH; real Android VM startup/app verification remains untested. Adapter and private-AVD provisioning behavior is tested with isolated fake executables and installed-image fixtures.
 
-This is cooperative coordination for one Mac account using a local state directory. Skill/session registration does not intercept arbitrary SDK commands or enforce policy in sessions that have not adopted it.
+## CI and boundaries
 
-Live-owner TTL expiry retains the reservation. Only a proven-dead owner with no live registered workload is reclaimed. Work escaping the registered process group, external GUI workers, rare ambiguous PID/group reuse, and partial dedicated-device creation during a host crash remain documented limitations. Release frees reservations, not VMs. Capacity limits active reservations, not booted VM memory usage.
+GitHub Actions runs Python 3.9 on Ubuntu and Python 3.14 on macOS. [Current workflow results](https://github.com/HankHuang0516/simulator-manager/actions/workflows/tests.yml).
 
-Pause new callers and drain leases/queues before upgrading installed code.
+Coordination is cooperative for one Mac account and one local shared state. Private devices isolate writable device data, not host/SDK/desktop activity. Strict time policy requires supervised run. Unknown live-owner manual work, process-group escape, external automation workers, ambiguous PID reuse and partial creation and ambiguous shutdown fail closed; interrupted idle shutdown is retried only after its stopper dies and provenance is rechecked. Uninterruptible survivors keep their reservation even beyond the use deadline while safe reclamation waits. Static fallback VMs can stay booted; telemetry governs new admission rather than controlling arbitrary external VMs.
+
+Pause new callers, drain leases/queue and stop the verified watcher before installed-code upgrades.

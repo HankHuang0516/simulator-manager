@@ -4,7 +4,7 @@ import signal
 import subprocess
 import sys
 import time
-from .core import boot_id, group_alive
+from .core import boot_id, group_alive, OwnershipError
 
 
 def spawn_gated(command, env=None, stdout=None, stderr=None):
@@ -50,6 +50,9 @@ def cancel_group(child, grace=3):
 
 
 def execute(manager, token, command, env=None, timeout=None, operation='work', stdout=None, stderr=None):
+    budget = manager.budget(token)
+    if budget['remaining_seconds']<=0:
+        return 75 if budget['reason']=='requeue-required' else 124
     child, gate = spawn_gated(command, env, stdout, stderr)
     registered = False
     try:
@@ -61,17 +64,32 @@ def execute(manager, token, command, env=None, timeout=None, operation='work', s
         end = time.monotonic() + timeout if timeout is not None else None
         renew_at = time.monotonic() + min(10, manager.config['lease_seconds']/3)
         while True:
+            from .monitor import update
+            update(manager)
+            budget = manager.budget(token)
             rc = child.poll()
             busy = group_alive(child.pid, manager.machine_boot)
+            if budget['remaining_seconds']<=0:
+                cancel_group(child)
+                return 75 if budget['reason']=='requeue-required' else 124
             if rc is not None and not busy:
                 return rc if rc >= 0 else 128-rc
             if end is not None and time.monotonic() >= end:
                 cancel_group(child)
                 return 124
             if time.monotonic() >= renew_at:
-                manager.renew(token)
+                try:
+                    manager.renew(token)
+                except OwnershipError:
+                    pass  # Cannot extend; continue only within the persisted deadline.
                 renew_at = time.monotonic() + min(10, manager.config['lease_seconds']/3)
             time.sleep(.1)
+    except OwnershipError:
+        cancel_group(child)
+        budget = manager.budget(token)
+        if budget['remaining_seconds']<=0:
+            return 75 if budget['reason']=='requeue-required' else 124
+        raise
     except BaseException:
         cancel_group(child)
         raise

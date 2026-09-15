@@ -21,7 +21,10 @@ def output(result, fmt):
                       'SIM_MANAGER_POOL':result['pool'], 'SIM_MANAGER_SESSION':result['session'],
                       'SIM_MANAGER_UDID':r.get('udid',''),
                       'SIM_MANAGER_SERIAL':f'emulator-{r["port"]}' if r['kind']=='android' else '',
-                      'SIM_MANAGER_AVD':r.get('avd','')}
+                      'SIM_MANAGER_AVD':r.get('avd',''),
+                      'SIM_MANAGER_HARD_EXPIRES':result['hard_expires'],
+                      'SIM_MANAGER_EXPIRES':result['expires'],'SIM_MANAGER_YIELD_BY':result['yield_by'] or '',
+                      'SIM_MANAGER_MODE':result['mode']}
             for key, value in values.items():
                 print(f'export {key}={shlex.quote(str(value))}')
         else:
@@ -44,11 +47,16 @@ def parser():
         s.add_argument('pool')
         s.add_argument('--session')
         s.add_argument('--project')
+        s.add_argument('--mode',choices=['auto','dynamic','traditional'],default='auto')
+        s.add_argument('--budget-seconds',type=float)
+        s.add_argument('--foreground',action='store_true',help='Serialize use of the shared desktop GUI')
         s.add_argument('--timeout', type=float, default=300, help='Queue wait seconds; 0 means try once')
         if name == 'acquire':
             s.add_argument('--owner-pid', type=int, help='Long-lived session/shell PID; default parent PID')
             s.add_argument('--lease-seconds', type=float)
         else:
+            s.add_argument('--requeue-on-yield',action='store_true',help='Only for checkpointed/restartable commands')
+            s.add_argument('--max-requeues',type=int,default=3)
             s.add_argument('--boot', action='store_true')
             s.add_argument('--boot-timeout', type=float, default=180)
             s.add_argument('--command-timeout', type=float, default=600)
@@ -69,6 +77,11 @@ def parser():
     s.add_argument('kind',choices=['ios','android','all'],default='all',nargs='?')
     for name in ('status','cleanup','validate-config'):
         subs.add_parser(name, parents=[common])
+    s = subs.add_parser('watch',parents=[common])
+    s.add_argument('--once',action='store_true')
+    s.add_argument('--stop',action='store_true')
+    s = subs.add_parser('_create',parents=[common],help=argparse.SUPPRESS)
+    s.add_argument('token')
     s = subs.add_parser('discover', parents=[common])
     s.add_argument('kind', choices=['ios','android'])
     # Used only by gated provider workers, never invokes shutdown.
@@ -110,39 +123,60 @@ def main(argv=None):
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGHUP, interrupted)
     try:
-        m = Manager(a.state_dir, a.config, allow_saved_config=a.action in ('release','renew','status','cleanup','boot','_provider'))
+        m = Manager(a.state_dir, a.config, allow_saved_config=a.action in ('release','renew','status','cleanup','boot','_provider','_create','watch'))
         if a.action == 'enable':
             result = m.enable(a.session,a.project,a.owner_pid)
             if a.prepare:
                 from .provision import prepare
                 result['platforms'] = prepare(m)
+                from .watchdog import ensure
+                result['watcher'] = ensure(m)
         elif a.action == 'setup':
             from .provision import prepare
             result = {'platforms':prepare(m, ('ios','android') if a.kind=='all' else (a.kind,))}
         elif a.action == 'acquire':
-            result = m.acquire(a.pool, a.session, a.project, a.owner_pid, a.timeout, a.lease_seconds)
+            result = m.acquire(a.pool,a.session,a.project,a.owner_pid,a.timeout,a.lease_seconds,a.mode,a.budget_seconds,a.foreground)
         elif a.action == 'run':
             positive(a.command_timeout, 'command-timeout')
             positive(a.boot_timeout, 'boot-timeout')
-            lease = m.acquire(a.pool, a.session, a.project, os.getpid(), a.timeout)
-            token = lease['token']
-            rc = 1
-            try:
-                rc = boot_command(m, token, a.boot_timeout, a.format) if a.boot else 0
-                if rc == 0:
-                    r = lease['resource']
-                    env = {**os.environ, 'SIM_MANAGER_TOKEN':token,
-                           'SIM_MANAGER_RESOURCE_ID':r['id'], 'SIM_MANAGER_POOL':a.pool,
-                           'SIM_MANAGER_SESSION':lease['session'], 'SIM_MANAGER_UDID':r.get('udid',''),
-                           'SIM_MANAGER_SERIAL':f'emulator-{r["port"]}' if r['kind']=='android' else '',
-                           'SIM_MANAGER_AVD':r.get('avd','')}
-                    rc = execute(m, token, command, env, a.command_timeout,
-                                 stdout=sys.stderr if a.format=='json' else None)
-            finally:
-                m.release(token)
-            if a.format == 'json':
-                output({'resource_id':lease['resource_id'],'exit_code':rc,'released':True}, a.format)
+            if a.max_requeues<0:
+                raise ManagerError('max-requeues must be nonnegative')
+            from .watchdog import ensure
+            if m.config['mode']=='dynamic':
+                ensure(m)
+            attempts = 0
+            while True:
+                lease = m.acquire(a.pool,a.session,a.project,os.getpid(),a.timeout,None,a.mode,a.budget_seconds,a.foreground)
+                token = lease['token']
+                rc = 1
+                try:
+                    rc = boot_command(m,token,a.boot_timeout,a.format) if a.boot else 0
+                    if rc==0:
+                        r = lease['resource']
+                        env = {**os.environ,'SIM_MANAGER_TOKEN':token,
+                               'SIM_MANAGER_RESOURCE_ID':r['id'],'SIM_MANAGER_POOL':a.pool,
+                               'SIM_MANAGER_SESSION':lease['session'],'SIM_MANAGER_UDID':r.get('udid',''),
+                               'SIM_MANAGER_SERIAL':f'emulator-{r["port"]}' if r['kind']=='android' else '',
+                               'SIM_MANAGER_AVD':r.get('avd',''),'SIM_MANAGER_HARD_EXPIRES':str(lease['hard_expires'])}
+                        rc = execute(m,token,command,env,a.command_timeout,
+                                     stdout=sys.stderr if a.format=='json' else None)
+                finally:
+                    m.release(token)
+                if rc!=75 or not a.requeue_on_yield or attempts>=a.max_requeues:
+                    break
+                attempts += 1
+                print('sim-manager: yielded safely; rejoining the FIFO queue',file=sys.stderr)
+            if a.format=='json':
+                output({'resource_id':lease['resource_id'],'exit_code':rc,'released':True,
+                        'requeues':attempts,'requeue_required':rc==75,'mode':lease['mode']},a.format)
             return rc
+        elif a.action == '_create':
+            from .dynamic import provision_environment
+            provision_environment(m,a.token)
+            return 0
+        elif a.action == 'watch':
+            from .watchdog import watch,stop
+            result = stop(m) if a.stop else watch(m,a.once)
         elif a.action in ('release','renew','boot','_provider'):
             if not a.token:
                 raise ManagerError('Pass a lease token or set SIM_MANAGER_TOKEN')

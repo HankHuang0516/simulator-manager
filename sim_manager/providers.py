@@ -1,4 +1,4 @@
-"""Only explicit device IDs/serials. Never shutdown, erase, or kill a shared server."""
+"""Only explicit device IDs/serials. Private idle shutdown only; never erase or kill a shared server."""
 import json
 import os
 from pathlib import Path
@@ -150,3 +150,40 @@ def discover(manager, kind):
         return json.loads(call([tool(manager, 'xcrun'), 'simctl', 'list', 'devices', '--json']))
     adb, emulator = tool(manager, 'adb'), tool(manager, 'emulator')
     return {'avds':call([emulator, '-list-avds']).splitlines(), 'devices':android_devices(adb)}
+
+
+def stop_managed(manager, resource):
+    """Only private dynamic environments selected while unleased may be stopped."""
+    row = manager.db.execute('SELECT phase FROM environments WHERE resource=?',(resource['id'],)).fetchone()
+    if not row or row['phase']!='stopping' or manager.db.execute('SELECT 1 FROM leases WHERE resource=?',(resource['id'],)).fetchone():
+        raise ManagerError('Shutdown requires an unleased private environment reserved for stopping')
+    runtime = manager.runtime(resource)
+    if not runtime:
+        raise ManagerError('No current-boot runtime provenance; shutdown refused')
+    if resource['kind']=='ios':
+        xcrun = tool(manager,'xcrun')
+        devices = json.loads(call([xcrun,'simctl','list','devices','--json']))['devices']
+        device = next((d for ds in devices.values() for d in ds if d['udid'].upper()==resource['udid'].upper()),None)
+        if not device:
+            raise ManagerError('Private simulator disappeared')
+        if device['state']!='Shutdown':
+            call([xcrun,'simctl','shutdown',resource['udid']],30)
+        devices = json.loads(call([xcrun,'simctl','list','devices','--json']))['devices']
+        if not any(d['udid'].upper()==resource['udid'].upper() and d['state']=='Shutdown' for ds in devices.values() for d in ds):
+            raise ManagerError('Private simulator has not finished shutting down')
+        return
+    adb = tool(manager,'adb')
+    serial = f'emulator-{resource["port"]}'
+    live = runtime['pid'] and process_alive(runtime['pid'],runtime['start'])
+    devices = android_devices(adb)
+    if serial in devices:
+        if not live or avd_name(adb,serial)!=resource['avd']:
+            raise ManagerError('Android runtime ownership changed; shutdown refused')
+        call([adb,'-s',serial,'emu','kill'],10)
+    elif live:
+        raise ManagerError('Android launch is live but not identifiable through adb; shutdown deferred')
+    deadline = time.monotonic()+15
+    while runtime['pid'] and process_alive(runtime['pid'],runtime['start']) and time.monotonic()<deadline:
+        time.sleep(.1)
+    if runtime['pid'] and process_alive(runtime['pid'],runtime['start']):
+        raise ManagerError('Private emulator has not exited; reservation retained')

@@ -152,7 +152,7 @@ class ManagerTests(unittest.TestCase):
         self.assertEqual(m.cleanup()['reaped'],['i1'])
         m.close()
 
-    def test_expired_live_owner_is_not_stolen_and_can_renew(self):
+    def test_expired_live_owner_is_not_stolen_and_must_requeue(self):
         lease = self.acquire(ttl=.05)
         time.sleep(.08)
         s = self.status()
@@ -161,7 +161,8 @@ class ManagerTests(unittest.TestCase):
         m = self.manager()
         with self.assertRaises(OwnershipError):
             m.begin_activity(lease['token'],'work')
-        self.assertFalse(m.renew(lease['token'])['expired'])
+        with self.assertRaises(OwnershipError):
+            m.renew(lease['token'])
         m.close()
         self.release(lease['token'])
 

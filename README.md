@@ -1,35 +1,94 @@
 # simulator-manager
 
-**Shared simulators. Calm sessions.**
+**Your session. Your simulator. A fair share of the Mac.**
 
-A Codex Skill and macOS resource scheduler for iOS Simulators, Android Emulators, and limited GUI test resources. Multiple sessions share one local state directory, queue fairly, and release their own reservations. Python 3.9+, standard library only.
+A Codex Skill and macOS shared resource scheduler. New installations default to **Dynamic Simulator Pool**: each session/project gets its own persistent iOS device or Android writable AVD, created lazily for runtime testing. Host pressure gradually reduces concurrency and falls back to **Traditional Mode**, the original shared-pool FIFO scheduler. Python 3.9+, standard library only.
 
-## Enable it with one message
+## Enable with one message
 
-Paste this into **each Codex session**:
+Paste into each Codex session:
 
 > Use the simulator-manager Skill from https://github.com/HankHuang0516/simulator-manager and enable shared mode for this session.
 
-The agent follows [SESSION_START.md](SESSION_START.md), installs the complete manager once if needed, registers the current session, and reuses the same shared state for every project. You do not need to run a separate shell command yourself.
+The agent follows [SESSION_START.md](SESSION_START.md), installs the complete CLI once, saves its session label, and uses the same state across projects. No separate terminal step is required from you. Each session must adopt the instruction or the [project rules](AGENTS.example.md).
 
-On first activation, bootstrap can create new, dedicated **shutdown** iOS/Android devices from SDK components already installed on the Mac. It never adopts your personal devices or downloads runtimes. Missing SDKs are reported as platform readiness issues; the session can still participate in sharing and perform builds/host tests. All participating sessions must receive the instruction or follow the same project rules. Registration records intent; actual exclusion is enforced by cooperative CLI leases.
-
-![simulator-manager flowchart](assets/flowchart.png)
+![Dynamic Simulator Pool and Traditional Mode flowchart](assets/flowchart.png)
 
 [Editable SVG](assets/flowchart.svg) · [Accessible flowchart](docs/FLOWCHART.md) · [Complete Skill](skill/simulator-manager/SKILL.md)
 
-## What happens next
+## Runtime lifecycle
 
-1. Run applicable builds, static checks, and host unit tests first.
-2. Acquire only when runtime/UI/device validation is required. Simulator-dependent application XCTest and Android instrumented tests also require a lease.
-3. Wait in FIFO order for a dedicated iOS, Android, or generic resource.
-4. Record the session, project, owner PID/start time, host boot identity, and workload group.
-5. Boot only the assigned UDID/serial, run validation, and renew automatically.
-6. Finish or cancel your own work, then release on success, failure, interruption, or timeout. Leave the managed VM running for reuse.
+1. Run builds, static checks and host unit tests first.
+2. Request a simulator only for runtime/UI/device-dependent verification.
+3. Join FIFO admission, then acquire a private session environment or a Traditional Mode slot.
+4. Start one total occupancy clock: **creation + boot + validation**, without resets between phases.
+5. Use only the assigned UDID/serial. Keep work within its deadline and renewal allowance.
+6. If another session waits, checkpoint/finish your chunk, release, and rejoin at the queue tail for remaining work.
+7. Release on success, failure, interruption or timeout. Idle private VMs may be shut down safely; their data and session assignment remain.
 
-## Manual bootstrap
+Application XCTest targets requiring a simulator and Android instrumented tests require reservations too. Build-for-testing outside the lease where supported, then test-without-building inside it.
 
-If you prefer a terminal:
+## Two modes
+
+| | Dynamic Simulator Pool — default | Traditional Mode |
+| --- | --- | --- |
+| Environment | Stable private device per session + project + platform | Configured shared pool devices |
+| Creation | Lazy, parallel, admission reserved before SDK calls | `setup` creates dedicated fallback slots from installed SDKs |
+| Concurrency | Up to `dynamic.max_parallel`, reduced by pressure | Shared weighted `global_capacity` and pool capacities |
+| Persistence | Unique iOS UDID / Android AVD and writable directory | Pool device data persists across borrowers |
+| Idle behavior | Manager may stop its own **unleased** private VM; no erase | Release leaves the bounded static pool running for reuse |
+
+This is device-data isolation similar to dedicated development environments. It is not Docker/container isolation: sessions still share the host, SDKs, adb server, simulator UI application and foreground desktop. Use device-targeted commands for parallel tests. For visible desktop automation, add **`--foreground`** to the mobile request; foreground requests and the `gui` pool serialize atomically without nested reservations.
+
+Private identity does not mean permanent occupancy. Keep the returned session label stable, including across tool calls. A new label or different project path creates a different environment. At `max_environments`, new owners wait/timeout; existing environments are never silently erased or reassigned. Failed partial creations remain visible and quarantined for operator inspection.
+
+Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 2.0.0.
+
+## Time limits and fair yielding
+
+New-install defaults:
+
+| Policy | Default | Enforcement |
+| --- | --- | --- |
+| `max_hold_seconds` | 600 seconds | Includes environment creation, boot and work from lease grant |
+| `max_renewals` | 3 actual extensions | No renewal can move the total deadline; no-op renewals do not count |
+| `waiter_slice_seconds` | 120 seconds | When another session waits, the current borrower must yield at its slice boundary |
+| `yield_grace_seconds` | 10 seconds | If the slice is already used, give a short checkpoint window |
+| Termination grace | 3 seconds | SIGTERM to the owned workload group, then SIGKILL if it survives |
+
+`--budget-seconds` requests a shorter total allocation; the configured maximum cannot be bypassed. Queue waiting occurs before the occupancy clock. Phase timeouts can shorten the allocation, never extend it. A fair-yield deadline becomes persistent once a waiter is observed; losing the waiter does not reset it.
+
+Use bounded, restartable test chunks. Scripts should handle SIGTERM by saving a checkpoint and exiting. Cancellation cannot guarantee rollback of arbitrary SDK/application side effects. `run` waits for the complete registered group to exit before releasing; an uninterruptible survivor keeps its reservation. The total **use** deadline is enforced, but safe cancellation/reclamation can take additional time.
+
+Fair yield returns **75** (`requeue_required`); the Skill must request a fresh lease at the tail for remaining validation. For commands explicitly known to be checkpointed/restartable, opt into automatic requeue:
+
+```sh
+sim-manager run ios --session my-session --boot --requeue-on-yield --max-requeues 3 \
+  -- ./restartable-ui-test-chunk
+```
+
+The limit bounds automatic retries. The manager never assumes an arbitrary command is safe to rerun. A child's own exit code 75 is also treated as a requeue request; reserve that code for this purpose.
+
+Strict time enforcement requires supervised **`run`**. Manual leases expose deadlines and reject expired boot/renew calls; unknown external GUI activity cannot be safely inferred or killed. An expired manual lease with a live owner remains protected until explicitly released. Never kill the long-lived Codex/session owner to recover a slot.
+
+## Gradual performance fallback
+
+A user-local watcher starts during normal activation and dynamic supervised runs. It samples macOS `memory_pressure -Q`, one-minute load divided by logical cores, and free disk. Linux CI uses `/proc/meminfo`. Load ratio measures scheduler load, not instantaneous CPU utilization. Historic swap usage alone does not trigger fallback.
+
+| Stage | Admission behavior |
+| --- | --- |
+| Dynamic | Allow new private environments; default 3 active budget units |
+| Constrained | Pause new private creation; reuse existing private environments or configured fallback slots |
+| Draining | Reduce new admissions to half the dynamic limit, minimum 1; use Traditional scheduling |
+| Traditional | Use the configured shared budget, default 1; preserve private assignment while serializing reuse |
+
+Each 3 consecutive elevated samples moves one stage down. Defaults: available memory at/below 20%, load ratio at/above 0.85, or disk at/below 5 GiB. Critical thresholds are 10%, 1.25, 2 GiB; a critical sample immediately pauses new private creation, then sustained samples continue the gradual fallback. Unknown memory telemetry is treated conservatively as pressure. Recovery requires 10 consecutive healthy samples for **each** upward stage (memory at least 30%, load ratio at most 0.6, disk above 5 GiB). The 2-second cadence and hysteresis prevent rapid flapping.
+
+Downgrades do not stop active environments or transfer leases. Existing work finishes/yields under the time policy; new admissions wait for the lower limit. At most one idle private VM is considered for retirement per sampling interval. Its manager provenance and lack of a lease are checked before exact-device shutdown. Data is retained. A stopping environment is excluded from acquisition. Failed/ambiguous shutdown stays protected.
+
+When pressure pauses creation, a session without a private environment may use a configured Traditional slot temporarily. Another session's private device is never lent out. Bootstrap prepares fallback slots from installed SDKs; if no safe slot exists, wait/timeout rather than bypass coordination. Static fallback VMs can remain booted: host telemetry still governs admission, and limits do not control personal/external VMs.
+
+## Installation
 
 ```sh
 git clone https://github.com/HankHuang0516/simulator-manager.git
@@ -37,167 +96,59 @@ cd simulator-manager
 ./bootstrap.sh --session my-session --project /absolute/project/path
 ```
 
-Bootstrap is idempotent. Concurrent activations serialize through an OS-managed setup lock. Later activations reuse the installation and preserve the existing pool configuration.
+Bootstrap is idempotent and uses a cross-process activation lock. It creates dedicated shutdown fallback devices only from already-installed SDK components. No downloads, personal-device adoption, sudo or shell-profile changes. Missing SDKs are reported; builds can continue outside reservations.
 
-```sh
-# Already installed: enable another session.
-~/.local/bin/sim-manager enable --session another-session --prepare --json
-
-# Retry dedicated setup after installing SDK components or finishing active work.
-~/.local/bin/sim-manager setup ios --json
-~/.local/bin/sim-manager setup android --json
-
-# Install without provisioning devices.
-./bootstrap.sh --session my-session --no-prepare
-```
-
-Bootstrap defaults:
-
-| Item | Location |
+| Item | Default location |
 | --- | --- |
 | CLI | `~/.local/bin/sim-manager` |
 | Program | `~/.local/share/simulator-manager` |
 | Skill | `~/.agents/skills/simulator-manager`, or an existing managed legacy Skill |
-| Shared state/config | `~/Library/Application Support/simulator-manager` |
+| Shared state | `~/Library/Application Support/simulator-manager` |
 
-The current documented user Skill discovery directory is `~/.agents/skills`. Bootstrap reuses an existing managed Skill under `${CODEX_HOME:-~/.codex}/skills` to avoid duplicates. Skill discovery supports explicit and implicit activation; existing sessions should load the Skill when asked. [Official Skill documentation](https://learn.chatgpt.com/docs/build-skills)
-
-`./install.sh` remains available for installation without session registration or automatic provisioning. Its legacy default Skill location is `${CODEX_HOME:-~/.codex}/skills`; pass `--skill-dir "$HOME/.agents/skills"` to choose the documented user directory. Neither installer modifies shell profiles. The installed Skill records the absolute CLI and shared state paths, so activation does not depend on a refreshed PATH.
-
-Custom installation:
+`install.sh` installs without session activation; its legacy Skill default is `${CODEX_HOME:-~/.codex}/skills`. Pass `--skill-dir "$HOME/.agents/skills"` to choose the user discovery directory. The installed Skill records absolute CLI/state paths. [Official Skill documentation](https://learn.chatgpt.com/docs/build-skills)
 
 ```sh
-./bootstrap.sh --session my-session \
-  --prefix /path/to/program --bin-dir /path/to/bin \
+./bootstrap.sh --session my-session --prefix /path/to/program --bin-dir /path/to/bin \
   --skill-dir /path/to/skills --state-dir /path/to/shared-state
+./bootstrap.sh --session my-session --no-prepare  # No fallback setup/watcher activation
+./bootstrap.sh --upgrade  # Drain leases/queues and pause new callers first
 ```
 
-Every session must use the same custom `--state-dir` or `SIM_MANAGER_STATE_DIR`. Do not create separate state per project. `--config` / `SIM_MANAGER_CONFIG` can select another shared config. Options may precede or follow a subcommand; the workload after `run` must follow `--`.
+All sessions must use the same state/config, including a custom `--state-dir` or `SIM_MANAGER_STATE_DIR`. Config changes apply after leases/queues drain. Busy inconsistent acquisitions fail; release/status/cleanup can recover with the saved database config if the config file is missing or malformed. Upgrade stops the managed watcher before replacing code; it refuses busy or unmanaged installations.
 
-For a version upgrade, finish all leases/queues, pause new callers, and use `./bootstrap.sh --upgrade`. Bootstrap refuses to overwrite unmanaged programs/Skills or upgrade busy installations.
-
-## Supervised runtime testing
-
-The saved session label should be passed to every `run`:
+## CLI examples
 
 ```sh
-# Build-for-testing first, outside the reservation where practical.
-sim-manager run ios --session my-session --boot \
-  --timeout 300 --command-timeout 600 -- sh -eu -c '
-    xcodebuild test-without-building -scheme MyApp \
-      -destination "id=$SIM_MANAGER_UDID"
-  '
-```
-
-```sh
-# JVM tests and APK builds first.
-sim-manager run android --session my-session --boot \
-  --timeout 300 --command-timeout 600 -- sh -eu -c '
-    adb -s "$SIM_MANAGER_SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk
-    adb -s "$SIM_MANAGER_SERIAL" shell am start -n com.example.app/.MainActivity
-    adb -s "$SIM_MANAGER_SERIAL" exec-out screencap -p > screenshot.png
-  '
-```
-
-The Android example installs, starts, and captures an app. Add project-specific assertions or an explicitly targeted instrumentation runner. Some Gradle connected-test tasks enumerate all devices; do not assume `ANDROID_SERIAL` alone isolates them.
-
-Generic resources use the same lifecycle:
-
-```sh
-sim-manager run gui --session my-session --command-timeout 300 -- ./your-gui-test-script
-```
-
-`run` injects `SIM_MANAGER_TOKEN`, `SIM_MANAGER_RESOURCE_ID`, `SIM_MANAGER_POOL`, `SIM_MANAGER_SESSION`, `SIM_MANAGER_UDID`, `SIM_MANAGER_SERIAL`, and `SIM_MANAGER_AVD`. Expand these inside the child command, after acquisition.
-
-The new-install default shared budget is **1**, serializing foreground desktop activity across pools. Increase it for independent device-targeted/headless testing with dedicated devices. Do not nest reservations. A generic `gui` lease does not implicitly lock an already-held mobile lease.
-
-## Resource pool configuration
-
-Automatic setup only fills empty mobile pools. It preserves custom, disabled, or intentionally paused pools. iOS setup creates a unique device using an available installed iOS runtime and compatible iPhone type. Android setup requires `adb`, `emulator`, `avdmanager`, and an installed host-compatible system image; it creates a unique AVD under the shared state's `avds/` directory. Setup does not boot either device. If preparation would require changing config while another session holds a lease/queue, it is deferred.
-
-You can also configure devices manually. Use only devices explicitly reserved for the manager:
-
-```sh
+# Host build and unit tests first; runtime work only inside the lease.
+sim-manager run ios --session my-session --boot --budget-seconds 600 -- sh -eu -c '
+  xcodebuild test-without-building -scheme MyApp -destination "id=$SIM_MANAGER_UDID"
+'
+sim-manager run android --session my-session --boot -- sh -eu -c '
+  adb -s "$SIM_MANAGER_SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk
+  adb -s "$SIM_MANAGER_SERIAL" shell am start -n com.example.app/.MainActivity
+  adb -s "$SIM_MANAGER_SERIAL" exec-out screencap -p > screenshot.png
+'
+sim-manager run ios --session my-session --foreground --boot -- ./visible-ui-test
+sim-manager run gui --session my-session -- ./desktop-test
+sim-manager run ios --mode traditional --session my-session --boot -- ./device-test
+sim-manager enable --session my-session --prepare --json
+sim-manager setup all --json
+sim-manager status --json
+sim-manager cleanup --json
+sim-manager watch --once --json
+sim-manager watch --stop --json
+sim-manager validate-config --json
 sim-manager discover ios --json
 sim-manager discover android --json
 ```
 
-See [config/example.json](config/example.json) for two iOS/two Android slots. Replace placeholder UDIDs/AVDs and set `enabled: true` for selected resources. Duplicate IDs, UDIDs, AVDs, and ports across pools are rejected.
+Add meaningful project-specific assertions. Some Gradle connected-test tasks enumerate every device; use an explicitly targeted instrumentation runner. `--mode dynamic` cannot override telemetry/admission limits. Avoid nested reservations.
 
-```json
-{
-  "version": 1,
-  "global_capacity": 1,
-  "lease_seconds": 900,
-  "poll_seconds": 0.25,
-  "pools": {
-    "ios": {
-      "capacity": 1,
-      "resources": [{"id": "phone", "kind": "ios", "udid": "YOUR-DEDICATED-UDID"}]
-    },
-    "android": {
-      "capacity": 1,
-      "resources": [{"id": "pixel", "kind": "android", "avd": "Codex_Pixel", "port": 5556}]
-    }
-  }
-}
-```
+`run` injects `SIM_MANAGER_TOKEN`, `SIM_MANAGER_RESOURCE_ID`, `SIM_MANAGER_POOL`, `SIM_MANAGER_SESSION`, `SIM_MANAGER_UDID`, `SIM_MANAGER_SERIAL`, `SIM_MANAGER_AVD`, and `SIM_MANAGER_HARD_EXPIRES`. Expand device values inside the child after acquisition. `--timeout` limits queue waiting; `--boot-timeout` and `--command-timeout` limit phases within the total deadline.
 
-| Setting | Meaning |
-| --- | --- |
-| `capacity` | Nonnegative integer reservation limit for a pool; 0 pauses it |
-| `global_capacity` | Shared weighted reservation budget across all pools |
-| Resource `cost` | Budget units consumed by a reservation; default 1 |
-| `enabled` | Whether a slot is available for allocation; default true |
-| `lease_seconds` | Lease validity; `run` renews it automatically |
-| `poll_seconds` | Queue polling interval |
-| `allow_attach` | Explicit attachment to externally started dedicated devices; default false |
-| Android `avd_home` | Optional private AVD directory, used by provisioned resources |
-| `android_sdk` | Optional SDK root for tools and installed-system-image lookup |
-| `tools` | Optional executable paths for `xcrun`, `adb`, `emulator`, `avdmanager` |
+### Manual leases and outputs
 
-Each Android slot needs a different writable AVD and even console port (5554–5682). A second slot cannot reuse the same AVD. Boot arguments stay pinned; arbitrary extra emulator arguments are rejected.
-
-Tool discovery uses PATH, then the configured/standard Android SDK location (`ANDROID_SDK_ROOT`, `ANDROID_HOME`, or `~/Library/Android/sdk`). AVD manager discovery checks `cmdline-tools/latest/bin` and installed command-line tool versions.
-
-Capacity bounds **reservations**, not the number of booted VMs. Released VMs remain running, so keep the pool itself within the Mac's memory budget. Configuration changes apply when leases and queues have drained. `status` reports `config_pending` while busy; inconsistent new acquisitions fail. Release/status/cleanup can recover using the saved DB config if the config file is malformed or missing.
-
-## CLI and output
-
-```sh
-sim-manager --version
-sim-manager enable --session task-id --prepare --json
-sim-manager setup all --json
-sim-manager acquire ios --owner-pid "$LONG_LIVED_OWNER_PID" --session task-id --json
-sim-manager acquire android --owner-pid "$LONG_LIVED_OWNER_PID" --shell --timeout 300
-sim-manager boot "$SIM_MANAGER_TOKEN" --timeout 180 --json
-sim-manager renew "$SIM_MANAGER_TOKEN" --lease-seconds 900 --json
-sim-manager release "$SIM_MANAGER_TOKEN" --json
-sim-manager status --json
-sim-manager cleanup --json
-sim-manager validate-config --json
-```
-
-`--json` produces one JSON object on stdout. `run --json` sends child stdout to stderr and returns `resource_id`, `exit_code`, and `released`. Human-readable output is formatted JSON; ordinary `run` preserves child output. `--shell` emits safely quoted exports for acquisition and renewal. Errors include `error` and `code` when JSON output is selected. `setup` reports readiness for each platform; SDK absence is a readiness result, not a claim of successful provisioning.
-
-Tokens are private capabilities. Boot/renew/release use a token, never a resource ID or session label. `status` does not expose tokens. Release is retry-safe and refuses to free a resource while its registered workload is alive.
-
-| Exit code | Meaning |
-| --- | --- |
-| 0 | Success |
-| 1 | Configuration, SDK, or general error |
-| 2 | CLI usage error |
-| 3 | Queue timeout / no slot for try-once acquisition |
-| 4 | Invalid token, owner, or active-work restriction |
-| 124 | Supervised workload timeout |
-| 130 | Manager interrupted |
-| Other | Child exit code; signals become 128 + signal |
-
-`--timeout 0` tries once without jumping the queue. For `run`, `--timeout` controls queue wait, `--boot-timeout` controls startup, and `--command-timeout` controls the workload.
-
-### Manual multi-step leases
-
-Prefer a single `run` script. A one-shot tool shell's parent may exit immediately, so a manual lease spanning multiple tool calls requires a verified long-lived owner PID. Do not invent one or use PID 1. Session registration is not a substitute for this owner.
+Prefer `run`. A manual lease spanning tool calls requires a verified long-lived owner PID, synchronous work, deadline checks and guaranteed release:
 
 ```sh
 set -eu
@@ -206,48 +157,51 @@ eval "$lease_env"
 trap 'sim-manager release "$SIM_MANAGER_TOKEN" >/dev/null' EXIT
 trap 'exit 130' INT TERM HUP
 sim-manager boot "$SIM_MANAGER_TOKEN"
-# Run synchronously and explicitly target $SIM_MANAGER_UDID.
+# Synchronous device-targeted work; finish within the reported deadline.
+sim-manager renew "$SIM_MANAGER_TOKEN" --lease-seconds 120 --json
+sim-manager release "$SIM_MANAGER_TOKEN" --json
 ```
 
-Only evaluate `--shell` output. Keep the owner alive until untracked manual work finishes, and renew before expiry. If release refuses, finish/cancel your work first. Do not daemonize or detach supervised workloads into another process group.
+Only evaluate `--shell` output. Tokens are private capabilities, never resource IDs or session names. Release is retry-safe and refuses live registered work. `status` omits tokens and reports owner/project/session, occupancy deadlines, renewal count, ordered queue, environment identity/phase and host controller metrics.
 
-## Queue and crash recovery
+`--json` writes one object to stdout; `run --json` sends child output to stderr and returns `exit_code`, `released`, `mode`, `requeues`, `requeue_required`. Normal output is formatted JSON. `--shell` writes quoted acquisition/renewal exports, including occupancy deadlines. Errors carry `error` and `code`.
 
-SQLite `BEGIN IMMEDIATE` serializes allocation/release/cleanup. WAL and FULL synchronous preserve committed state. The OS/SQLite release transaction locks after a process crash; no stale file lock needs manual deletion.
+| Exit | Meaning |
+| --- | --- |
+| 0 | Success |
+| 1 / 2 | Configuration/SDK/general error / CLI usage error |
+| 3 | Queue timeout; `--timeout 0` tries once without jumping FIFO |
+| 4 | Token/owner/expiry/renewal or active-work restriction |
+| 75 | Safe yield; release and request remaining work again at the tail |
+| 124 | Total or phase timeout |
+| 130 | Interrupted manager |
+| Other | Child exit code; signals map to 128 + signal |
 
-FIFO is strict within each pool. Across pools, the oldest currently satisfiable pool head receives the shared budget; a blocked Android head does not idle an available iOS resource. Dead/expired waiters are removed automatically.
+## Configuration and recovery
 
-Leases record session/project, PID/start stamp, host boot identity, creation/expiry, and registered workload group. A pipe gate prevents the workload from executing until group registration commits.
+[Default config](config/default.json) · [Configurable pool example](config/example.json) · [No-SDK Traditional demo](config/demo.json)
 
-- Owner dead and work ended: reclaim on the next acquire/status/cleanup.
-- Owner killed but same-group children/grandchildren alive: keep the reservation until they finish.
-- Supervisor dies before opening the gate: worker exits without executing the command.
-- Host reboots: old process identities become invalid.
-- TTL expires but owner is alive: block new boot/work calls, keep the reservation, allow renew/release. Time expiry never authorizes stealing live work.
+`mode`, `dynamic`, `policy`, and `monitor` configure the behavior above. Per-pool `capacity: 0` pauses both modes. Traditional `capacity` bounds that pool's leases and `global_capacity` bounds weighted concurrent leases. Dynamic mobile admission uses `max_parallel` and one private slot per session; static resource `cost` defaults to 1. Resource IDs, iOS UDIDs, Android AVDs and ports must be globally unique across static pools. Dynamic Android ports are transactionally reserved across static and private environments before parallel SDK creation.
 
-The state directory is private (0700; files default 0600), local to one Mac account, and shared across its projects. Do not use NFS, cloud-synced storage, multiple hosts, or delete a busy DB. Audit history is bounded to approximately 1,000 events; status shows the latest 30. Android logs are retained under `logs/`; rotate them when work has drained. Session records show declared participation/last use, not an OS-enforced policy.
+Android requires an installed host-compatible system image, `adb`, `emulator`, and `avdmanager`. Each private environment has a unique writable AVD and `environments/<identity>/avds/` directory. Tools use configured `tools` paths, PATH, or `android_sdk` / standard SDK locations. Arbitrary emulator arguments are rejected; device targets remain pinned. iOS creates a unique device from an installed available runtime and compatible iPhone type.
 
-Process-group escape, external GUI workers, and SDK calls bypassing this Skill are outside cooperative protection. PID start stamps are second-resolution; rare ambiguous PID/group reuse conservatively delays reclamation. Uninterruptible surviving work keeps its reservation. A rare crash during device creation may leave a dedicated shutdown device before its config entry is committed; it is never auto-adopted by name.
+SQLite `BEGIN IMMEDIATE`, WAL and FULL synchronous protect allocation, queue and ownership state across sessions. FIFO is strict within a pool; across pools the oldest satisfiable head progresses. Parallel private creation reserves capacity in FIFO admission order, although SDK creation may complete in a different order. The pipe gate registers each workload group before execution.
 
-## SDK integration and scope
+Dead waiters are reaped. A dead owner with no live tracked work is reclaimed. After supervisor SIGKILL, the watcher keeps the live group reserved until it ends or the original deadline requires cancellation of **that owned group**. Host reboot invalidates old process identities and running flags. A live owner with unknown manual work is never stolen merely because its lease expired.
 
-iOS uses `xcrun simctl list`, explicit `boot UDID`, and `bootstatus UDID`. It does not bring Simulator.app forward automatically or use implicit `booted` targets. Android pins the AVD/port, verifies the AVD at the serial, checks port pairs, and waits for `sys.boot_completed=1`; all device adb commands use `-s SERIAL`.
+Watcher state is local and user-owned; `flock` prevents duplicate watchers. If it crashes, the next activation/dynamic run restarts it. `watch --once` and `cleanup` perform maintenance manually. `monitor.daemon: false` disables background start; supervised runs still enforce their own policy and sample pressure. Idle maintenance reserves a stopping row before SDK calls. Partial creation remains quarantined. Interrupted idle shutdown is retried only after the verified stopping process dies, with runtime provenance checked again.
 
-No shutdown, erase, emulator-kill, or `adb kill-server` command is implemented. Existing unknown running devices are refused unless explicitly configured for attachment to an exclusive pool. `adb devices` can start the normal adb server. External SDK callers can still race with cooperative checks, so dedicated devices are essential.
+Never use `booted`, implicit adb targets, `shutdown all`, `erase all`, `adb kill-server`, or stop another session's active VM. Only the manager's idle maintenance may stop a provenance-verified unleased private device by exact identifier. No erase/reset/personal-device deletion is implemented.
 
-[Apple CLI reference](https://developer.apple.com/documentation/xcode/xcode-command-line-tool-reference) · [Android emulator](https://developer.android.com/studio/run/emulator-commandline) · [ADB](https://developer.android.com/tools/adb) · [avdmanager](https://developer.android.com/tools/avdmanager) · [Android environment variables](https://developer.android.com/tools/variables)
+One Mac account and local storage only; do not put the shared database on NFS/iCloud. This is cooperative coordination, not interception of arbitrary SDK callers. Process-group escape, external automation workers and rare ambiguous PID reuse remain outside strict protection. Do not delete state while workers run.
 
-## Project rules, tests, and validation
+[Apple CLI reference](https://developer.apple.com/documentation/xcode/xcode-command-line-tool-reference) · [Android emulator and writable AVD data](https://developer.android.com/studio/run/emulator-commandline) · [ADB](https://developer.android.com/tools/adb) · [avdmanager](https://developer.android.com/tools/avdmanager)
 
-Merge [AGENTS.example.md](AGENTS.example.md) into project rules if every session should coordinate by default. Keep the Skill discoverable and use the one-message activation instruction for existing sessions.
+## Tests
 
 ```sh
 python3 -m unittest discover -s tests -v
 python3 -m compileall -q sim_manager tests activate.py install.py
 ```
 
-Tests use temporary shared state and fake SDK executables; they never boot/shutdown real devices. They cover concurrent/idempotent activation, config preservation, dedicated provisioning, missing SDKs, multi-process FIFO/exclusion/capacity, timeout, shell/JSON output, token isolation, owner/reboot invalidation, SIGTERM/SIGKILL/descendants, gate EOF, boot errors, and external-device refusal.
-
-See [VALIDATION.md](VALIDATION.md) for the actual macOS verification and remaining live-SDK boundaries. [config/demo.json](config/demo.json) provides a generic single-slot pool for a no-SDK queue demonstration.
-
-MIT licensed.
+Tests use isolated temporary state and fake SDK executables. They cover static FIFO/exclusion, parallel private creation, stable identities, private Android data/ports, total time including boot, bounded renewals, checkpoint yielding/requeue, gradual pressure/recovery, owned idle shutdown, crash/watchdog recovery, bootstrap and installation. [Validation report](VALIDATION.md) distinguishes simulated SDK tests from actual host verification. MIT licensed.

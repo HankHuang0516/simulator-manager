@@ -41,6 +41,8 @@ def main():
                 raise SystemExit('Drain active leases and queue before upgrading')
         finally:
             db.close()
+        if (prefix/'sim_manager/watchdog.py').exists():
+            subprocess.run([str(prefix/'bin/sim-manager'),'watch','--stop','--state-dir',str(state),'--json'],check=True)
     prefix.mkdir(parents=True, exist_ok=True)
     for item in ('sim_manager','bin','config','skill'):
         shutil.copytree(source/item, prefix/item, dirs_exist_ok=True,

@@ -1,31 +1,41 @@
-# Shared resource workflow
+# Dynamic Simulator Pool workflow
 
-The [SVG](../assets/flowchart.svg) is editable; the [PNG](../assets/flowchart.png) is optimized for GitHub display.
+[Full-resolution PNG](../assets/flowchart.png) · [Editable SVG](../assets/flowchart.svg)
 
 ```mermaid
 flowchart TD
-    A[Each session: Skill + GitHub link] --> B[Install once / reuse shared state]
-    B --> C[Register session and report platform readiness]
-    C --> D[Build and host unit tests]
-    D --> E{Runtime or UI required?}
-    E -->|No| F[Continue without a reservation]
-    E -->|Yes| G[Join the shared FIFO queue]
-    G --> H{Dedicated slot and budget available?}
-    H -->|No| I[Wait / clean dead waiters / respect timeout]
-    I --> H
-    H -->|Yes| J[Acquire private lease token]
-    J --> K[Record PID, start stamp, boot identity and work group]
-    K --> L[Open execution gate]
-    L --> M[Boot exact UDID / serial and validate]
-    M --> N[Finish or cancel own work]
-    N --> O[Release own reservation; keep managed VM running]
-    O --> P[Next waiting session gets the resource]
-    K -. Owner crashes .-> Q{Work group still alive?}
-    Q -->|Yes| R[Keep reservation; never steal live work]
-    R --> Q
-    Q -->|No| S[Reclaim dead lease on next manager check]
-    S --> P
-    I -->|Timeout| T[Report unavailable validation; do not bypass queue]
+    Enable[Enable simulator-manager Skill in each session] --> Build[Build and host unit tests first]
+    Build --> Need{Runtime or UI required?}
+    Need -- No --> Continue[Continue without simulator occupancy]
+    Need -- Yes --> Queue[FIFO admission: wait without occupying a device]
+    Queue --> Grant[Lease grant: start one total occupancy clock]
+    Grant --> Mode{Pressure-aware admission}
+    Mode -- Default --> Dynamic[Dynamic Simulator Pool: private device per session + project]
+    Mode -- Reduced admission --> Traditional[Traditional Mode: serial private reuse or configured shared slot]
+    Dynamic --> Create[Create if missing, then boot exact assigned device]
+    Traditional --> Create
+    Create --> Work[Runtime verification in registered workload group]
+    Work --> Waiting{Someone waiting?}
+    Waiting -- Yes --> Checkpoint[Finish or checkpoint at waiter slice boundary]
+    Waiting -- No --> Finish[Finish within total and phase deadlines]
+    Checkpoint --> Stop[Safely stop own work; confirm complete group exit]
+    Finish --> Stop
+    Stop --> Release[Release token on success, failure or interruption]
+    Release --> Next[Next eligible waiter proceeds]
+    Next -- Remaining validation --> Queue
+    Release --> Idle[Idle private VM may be stopped by manager; keep data]
+
+    Watch[Watcher: memory pressure, normalized load, free disk] --> Stage[Dynamic → Constrained → Draining → Traditional]
+    Stage --> Mode
+    Watch --> Recover[10 healthy samples per upward stage]
+    Recover --> Mode
+    Crash[Supervisor crash] --> Protect[Keep live tracked group reserved]
+    Protect --> Deadline[Watcher cancels only orphan group at original deadline]
+    Deadline --> Stop
 ```
 
-FIFO is strict within a pool; the oldest satisfiable pool head is chosen across pools. Live-owner TTL expiry prevents new work but retains its reservation. Activation records cooperative intent and never reserves a device by itself.
+Defaults: total use budget 600 seconds including creation + boot + work; at most 3 actual extensions; waiter slice 120 seconds and late checkpoint window 10 seconds. Expired leases cannot be revived. Exit 75 requires remaining work to requeue at the FIFO tail; automatic rerun is opt-in for explicitly restartable commands only.
+
+Pressure uses 2-second sampling and 3 elevated samples per downward step; critical telemetry immediately pauses new private creation. New private creation pauses first, then admissions reduce and Traditional scheduling applies. Active environments are never evicted. Only provenance-verified unleased private VMs can be stopped by exact identifier, at most one per sampling interval. Private assignment/data persists; another session never receives it.
+
+Supervised run enforces policy. Unknown live manual work stays protected; cancellation cannot promise arbitrary side-effect rollback. Device-data isolation shares the Mac host, SDKs and desktop. Foreground mobile requests use `--foreground`, avoiding nested GUI reservations.
