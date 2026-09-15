@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1840" height="1840" viewBox="0 0 1840 1840" role="img" aria-labelledby="title desc">
+<title id="title">simulator-manager — shared resource workflow</title>
+<desc id="desc">Enable the Skill in each session. Build and run host tests first. If runtime is needed, queue FIFO, acquire a dedicated resource, record owner and workload, boot and validate, then release. A crash keeps live workloads protected and reclaims only dead leases.</desc>
+<defs>
+ <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0c1625"/><stop offset="1" stop-color="#101f30"/></linearGradient>
+ <linearGradient id="accent"><stop stop-color="#7ee5d5"/><stop offset="1" stop-color="#72b8ff"/></linearGradient>
+ <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#182a3b"/><stop offset="1" stop-color="#142337"/></linearGradient>
+ <pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#32465b" opacity=".28"/></pattern>
+ <filter id="shadow" x="-15%" y="-15%" width="130%" height="145%"><feDropShadow dx="0" dy="9" stdDeviation="14" flood-color="#000" flood-opacity=".20"/></filter>
+ <marker id="arrow" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto"><path d="M0 0L8 4.5L0 9" fill="none" stroke="#71cfc7" stroke-width="1.6"/></marker>
+ <marker id="muted-arrow" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto"><path d="M0 0L8 4.5L0 9" fill="none" stroke="#859bb0" stroke-width="1.6"/></marker>
+ <style>text{font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif}.mono{font-family:'SFMono-Regular',Menlo,Consolas,monospace}</style>
+</defs>
+<rect width="1840" height="1840" fill="url(#bg)"/><g transform="translate(80 0)"><rect width="1680" height="1840" fill="url(#dots)"/>
+
+<rect x="80" y="58" width="263" height="34" rx="17" fill="#173d40" stroke="none" stroke-width="1.4"/>
+<text x="211.5" y="81" font-size="16" fill="#7ee5d5" font-weight="600" text-anchor="middle">CODEX SKILL  /  macOS</text>
+<text x="80" y="146" font-size="58" fill="#f4f8fc" font-weight="750">simulator-manager</text>
+<text x="80" y="185" font-size="26" fill="#a5bace" font-weight="400">One queue. Dedicated devices. Every session in sync.</text>
+<rect x="80" y="220" width="1520" height="145" rx="24" fill="#152d3b" stroke="#3c6874" stroke-width="1.4" filter="url(#shadow)"/>
+<text x="110" y="256" font-size="16" fill="#7ee5d5" font-weight="750">01  /  ENABLE EACH SESSION</text>
+<text x="110" y="299" font-size="28" fill="#f4f8fc" font-weight="650">Use the simulator-manager Skill + GitHub link. Enable shared mode.</text>
+<text x="110" y="334" font-size="20" fill="#87b7db" font-weight="450" class="mono">github.com/HankHuang0516/simulator-manager</text>
+<rect x="1282" y="320" width="283" height="34" rx="17" fill="#173d40" stroke="none" stroke-width="1.4"/>
+<text x="1423.5" y="343" font-size="15" fill="#7ee5d5" font-weight="600" text-anchor="middle">INSTALL ONCE · REUSE</text>
+<rect x="520" y="400" width="184" height="48" rx="12" fill="#17293b" stroke="#34516a" stroke-width="1.4"/>
+<text x="612" y="430" font-size="17" fill="#a6c8e3" font-weight="650" text-anchor="middle">SESSION A</text>
+<rect x="758" y="400" width="184" height="48" rx="12" fill="#17293b" stroke="#34516a" stroke-width="1.4"/>
+<text x="850" y="430" font-size="17" fill="#a6c8e3" font-weight="650" text-anchor="middle">SESSION B</text>
+<rect x="996" y="400" width="184" height="48" rx="12" fill="#17293b" stroke="#34516a" stroke-width="1.4"/>
+<text x="1088" y="430" font-size="17" fill="#a6c8e3" font-weight="650" text-anchor="middle">SESSION C</text>
+<path d="M612 448 V466 H850" fill="none" stroke="#71cfc7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1088 448 V466 H850" fill="none" stroke="#71cfc7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M850 448 V492" fill="none" stroke="#71cfc7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="520" y="505" width="660" height="112" rx="20" fill="url(#panel)" stroke="#31475c" stroke-width="1.4" filter="url(#shadow)"/>
+<circle cx="559" cy="547" r="21" fill="#1c3946" stroke="#7ee5d5" stroke-width="1.3"/>
+<text x="559" y="553" font-size="17" fill="#7ee5d5" font-weight="700" text-anchor="middle">2</text>
+<text x="596" y="553" font-size="28" fill="#f4f8fc" font-weight="650">Build &amp; host unit tests</text>
+<text x="552" y="592" font-size="21" fill="#9cb3c8" font-weight="400">Static checks first. No device for host-only work.</text>
+<path d="M850 617 V645" fill="none" stroke="#71cfc7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M850 645 L1040 709 L850 773 L660 709 Z" fill="#302c25" stroke="#d6b573" stroke-width="1.8" filter="url(#shadow)"/>
+<text x="850" y="704" font-size="25" fill="#f8dfad" font-weight="650" text-anchor="middle">Runtime / UI</text>
+<text x="850" y="735" font-size="25" fill="#f8dfad" font-weight="650" text-anchor="middle">required?</text>
+<path d="M660 709 H446" fill="none" stroke="#859bb0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#muted-arrow)"/>
+<rect x="487" y="683" width="64" height="34" rx="17" fill="#26384b" stroke="none" stroke-width="1.4"/>
+<text x="519.0" y="706" font-size="15" fill="#b5c4d2" font-weight="600" text-anchor="middle">NO</text>
+<rect x="80" y="650" width="350" height="147" rx="18" fill="#142b31" stroke="#416564" stroke-width="1.4" filter="url(#shadow)"/>
+<text x="109" y="689" font-size="25" fill="#9de5d2" font-weight="650">Host checks complete</text>
+<text x="109" y="726" font-size="20" fill="#aac0c8" font-weight="400">No simulator reservation.</text>
+<text x="109" y="758" font-size="20" fill="#aac0c8" font-weight="400">Continue the session.</text>
+<path d="M850 773 V826" fill="none" stroke="#71cfc7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="882" y="785" width="66" height="34" rx="17" fill="#193c40" stroke="none" stroke-width="1.4"/>
+<text x="915.0" y="808" font-size="15" fill="#7ee5d5" font-weight="600" text-anchor="middle">YES</text>
+<rect x="520" y="840" width="660" height="154" rx="20" fill="url(#panel)" stroke="#31475c" stroke-width="1.4" filter="url(#shadow)"/>
+<circle cx="559" cy="882" r="21" fill="#1c3946" stroke="#7ee5d5" stroke-width="1.3"/>
+<text x="559" y="888" font-size="17" fill="#7ee5d5" font-weight="700" text-anchor="middle">3</text>
+<text x="596" y="888" font-size="28" fill="#f4f8fc" font-weight="650">Acquire a dedicated resource</text>
+<text x="552" y="927" font-size="21" fill="#9cb3c8" font-weight="400">iOS / Android / GUI → enter the shared FIFO queue.</text>
+<rect x="552" y="948" width="215" height="34" rx="17" fill="#173d40" stroke="none" stroke-width="1.4"/>
+<text x="659.5" y="971" font-size="15" fill="#7ee5d5" font-weight="600" text-anchor="middle">FREE SLOT → ACQUIRE</text>
+<rect x="785" y="948" width="352" height="34" rx="17" fill="#3c3528" stroke="none" stroke-width="1.4"/>
+<text x="961.0" y="971" font-size="15" fill="#f1cf8d" font-weight="600" text-anchor="middle">BUSY → WAIT · RESPECT TIMEOUT</text>
+<path d="M850 994 V1060" fill="none" stroke="#71cfc7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="520" y="1074" width="660" height="138" rx="20" fill="url(#panel)" stroke="#31475c" stroke-width="1.4" filter="url(#shadow)"/>
+<circle cx="559" cy="1116" r="21" fill="#1c3946" stroke="#7ee5d5" stroke-width="1.3"/>
+<text x="559" y="1122" font-size="17" fill="#7ee5d5" font-weight="700" text-anchor="middle">4</text>
+<text x="596" y="1122" font-size="28" fill="#f4f8fc" font-weight="650">Record owner &amp; guard the workload</text>
+<text x="552" y="1161" font-size="21" fill="#9cb3c8" font-weight="400">PID + start time + host boot ID + private lease token</text>
+<text x="552" y="1185" font-size="18" fill="#7ed9cf" font-weight="400">Commit the work group before opening the execution gate.</text>
+<path d="M850 1212 V1271" fill="none" stroke="#71cfc7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="520" y="1285" width="660" height="158" rx="20" fill="url(#panel)" stroke="#31475c" stroke-width="1.4" filter="url(#shadow)"/>
+<circle cx="559" cy="1327" r="21" fill="#1c3946" stroke="#7ee5d5" stroke-width="1.3"/>
+<text x="559" y="1333" font-size="17" fill="#7ee5d5" font-weight="700" text-anchor="middle">5</text>
+<text x="596" y="1333" font-size="28" fill="#f4f8fc" font-weight="650">Boot assigned device · Validate</text>
+<text x="552" y="1372" font-size="21" fill="#9cb3c8" font-weight="400">UI, lifecycle, navigation, screenshots, instrumented tests</text>
+<rect x="552" y="1394" width="265" height="34" rx="17" fill="#223b58" stroke="none" stroke-width="1.4"/>
+<text x="684.5" y="1417" font-size="15" fill="#91caff" font-weight="600" text-anchor="middle">iOS  ·  simctl → exact UDID</text>
+<rect x="834" y="1394" width="313" height="34" rx="17" fill="#173d40" stroke="none" stroke-width="1.4"/>
+<text x="990.5" y="1417" font-size="15" fill="#7ee5d5" font-weight="600" text-anchor="middle">ANDROID  ·  adb → exact serial</text>
+<path d="M850 1443 V1504" fill="none" stroke="#71cfc7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="520" y="1518" width="660" height="147" rx="20" fill="url(#panel)" stroke="#31475c" stroke-width="1.4" filter="url(#shadow)"/>
+<circle cx="559" cy="1560" r="21" fill="#1c3946" stroke="#7ee5d5" stroke-width="1.3"/>
+<text x="559" y="1566" font-size="17" fill="#7ee5d5" font-weight="700" text-anchor="middle">6</text>
+<text x="596" y="1566" font-size="28" fill="#f4f8fc" font-weight="650">Finish or cancel your work</text>
+<text x="552" y="1605" font-size="21" fill="#9cb3c8" font-weight="400">Release your token on success, failure, or interruption.</text>
+<text x="552" y="1637" font-size="18" fill="#7ed9cf" font-weight="400">Keep the managed VM running for safe reuse.</text>
+<path d="M850 1665 V1695" fill="none" stroke="#71cfc7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="520" y="1710" width="660" height="70" rx="19" fill="#143e3c" stroke="#58b8a9" stroke-width="1.4" filter="url(#shadow)"/>
+<text x="850" y="1755" font-size="26" fill="#b6f0e2" font-weight="650" text-anchor="middle">Next waiting session receives the resource</text>
+<rect x="80" y="1069" width="350" height="410" rx="20" fill="#142335" stroke="#31475c" stroke-width="1.4"/>
+<text x="109" y="1111" font-size="16" fill="#87b7db" font-weight="750">SHARED BY EVERY PROJECT</text>
+<text x="109" y="1160" font-size="23" fill="#eef5fa" font-weight="650">One local state directory</text>
+<text x="109" y="1199" font-size="15" fill="#a4b9ce" font-weight="400" class="mono">~/Library/Application Support/</text>
+<text x="109" y="1225" font-size="17" fill="#a4b9ce" font-weight="400" class="mono">simulator-manager</text>
+<path d="M109 1254 H402" stroke="#31475c"/>
+<circle cx="116" cy="1287" r="4" fill="#7ee5d5"/>
+<text x="131" y="1293" font-size="18" fill="#c2d1df" font-weight="400">FIFO within each pool</text>
+<circle cx="116" cy="1330" r="4" fill="#7ee5d5"/>
+<text x="131" y="1336" font-size="18" fill="#c2d1df" font-weight="400">Explicit device IDs</text>
+<circle cx="116" cy="1373" r="4" fill="#7ee5d5"/>
+<text x="131" y="1379" font-size="18" fill="#c2d1df" font-weight="400">No shutdown of other sessions</text>
+<circle cx="116" cy="1416" r="4" fill="#7ee5d5"/>
+<text x="131" y="1422" font-size="18" fill="#c2d1df" font-weight="400">Default shared budget: 1</text>
+<path d="M1180 1140 H1224" fill="none" stroke="#859bb0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="7 7" marker-end="url(#muted-arrow)"/>
+<rect x="1240" y="1069" width="360" height="530" rx="20" fill="#202936" stroke="#647181" stroke-width="1.4" filter="url(#shadow)"/>
+<text x="1269" y="1111" font-size="16" fill="#e9c283" font-weight="750">CRASH RECOVERY</text>
+<text x="1269" y="1156" font-size="23" fill="#eef5fa" font-weight="650">Owner process exited?</text>
+<path d="M1269 1184 H1571" stroke="#475569"/>
+<rect x="1269" y="1207" width="242" height="34" rx="17" fill="#413828" stroke="none" stroke-width="1.4"/>
+<text x="1390.0" y="1230" font-size="14" fill="#f1cf8d" font-weight="600" text-anchor="middle">WORK GROUP STILL ALIVE</text>
+<text x="1269" y="1271" font-size="23" fill="#f8dfad" font-weight="650">Keep the reservation.</text>
+<text x="1269" y="1309" font-size="18" fill="#b8c6d2" font-weight="400">Never hand off live work.</text>
+<path d="M1269 1340 H1571" stroke="#475569"/>
+<rect x="1269" y="1365" width="238" height="34" rx="17" fill="#173d40" stroke="none" stroke-width="1.4"/>
+<text x="1388.0" y="1388" font-size="14" fill="#7ee5d5" font-weight="600" text-anchor="middle">OWNER + WORK ENDED</text>
+<text x="1269" y="1432" font-size="23" fill="#9de5d2" font-weight="650">Auto-reclaim stale lease.</text>
+<text x="1269" y="1471" font-size="18" fill="#b8c6d2" font-weight="400">Checked on acquire, status,</text>
+<text x="1269" y="1500" font-size="18" fill="#b8c6d2" font-weight="400">or cleanup. No daemon needed.</text>
+<text x="1269" y="1559" font-size="15" fill="#97aec2" font-weight="400">Live-owner TTL expiry stays reserved.</text>
+<path d="M1420 1599 V1745 H1195" fill="none" stroke="#859bb0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="7 7" marker-end="url(#muted-arrow)"/>
+<text x="80" y="1810" font-size="14" fill="#7b96ac" font-weight="750">COOPERATIVE COORDINATION</text>
+<text x="1600" y="1810" font-size="16" fill="#91a8bd" font-weight="400" text-anchor="end">Same Mac account · Same state · All sessions follow the Skill</text>
+</g></svg>

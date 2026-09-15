@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "global_capacity": 1,
+  "lease_seconds": 900,
+  "poll_seconds": 0.25,
+  "pools": {
+    "ios": {"capacity": 1, "resources": []},
+    "android": {"capacity": 1, "resources": []},
+    "gui": {"capacity": 1, "resources": [{"id": "desktop-gui", "kind": "generic", "cost": 1}]}
+  }
+}

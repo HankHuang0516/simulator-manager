@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "global_capacity": 2,
+  "lease_seconds": 900,
+  "poll_seconds": 0.25,
+  "pools": {
+    "ios": {
+      "capacity": 1,
+      "resources": [
+        {"id": "ios-phone-1", "kind": "ios", "udid": "REPLACE-WITH-DEDICATED-UDID-1", "enabled": false, "cost": 1, "allow_attach": false},
+        {"id": "ios-phone-2", "kind": "ios", "udid": "REPLACE-WITH-DEDICATED-UDID-2", "enabled": false, "cost": 1, "allow_attach": false}
+      ]
+    },
+    "android": {
+      "capacity": 1,
+      "resources": [
+        {"id": "android-pixel-1", "kind": "android", "avd": "Codex_Pixel_1", "port": 5556, "enabled": false, "cost": 1, "allow_attach": false},
+        {"id": "android-pixel-2", "kind": "android", "avd": "Codex_Pixel_2", "port": 5558, "enabled": false, "cost": 1, "allow_attach": false}
+      ]
+    },
+    "gui": {"capacity": 1, "resources": [{"id": "desktop-gui", "kind": "generic", "cost": 1}]}
+  }
+}
