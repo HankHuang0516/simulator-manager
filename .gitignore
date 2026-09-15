@@ -5,3 +5,7 @@ __pycache__/
 *.sqlite3
 *.sqlite3-*
 *.log
+
+# Dashboard is compiled locally for the host architecture.
+Simulator Manager.app/
+.dashboard-build.lock

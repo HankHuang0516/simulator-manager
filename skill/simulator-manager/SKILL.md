@@ -69,3 +69,7 @@ Prefer one `run` invocation. Multi-tool interactive leases require a verified lo
 Use `status --json` to inspect mode, metrics, deadlines, owners, environments and queue. `cleanup --json` performs safe maintenance. The watcher reclaims dead-owner/dead-work reservations and cancels tracked orphan groups at their deadline; it never kills Codex session PIDs. If the watcher crashes, activation/dynamic runs restart it. Unknown external runtimes, partial creation and ambiguous shutdown are quarantined rather than adopted or stolen.
 
 On queue timeout, report the exact unverified runtime checks and retry through the manager. Config changes/upgrades require drained leases/queues and paused callers. Do not enable `allow_attach` to bypass another owner. This mode remains the current session convention until the user changes it.
+
+## Dashboard
+
+When asked to view scheduling, run the installed CLI `sim-manager ui`. On macOS 13+ it lazily builds and opens a native floating SwiftUI panel using Xcode command line tools. It uses the same shared state, updates every two seconds, and has no resource control buttons. Viewing status does not require acquiring a simulator. Registered sessions are adoption records, not proof of live work. The manager watcher operates independently of the panel.

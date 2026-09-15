@@ -29,3 +29,6 @@ jobs:
         run: python -m compileall -q sim_manager tests install.py activate.py
       - name: Test activation, resource exclusion, queues, and SDK adapters
         run: python -m unittest discover -s tests -v
+      - name: Compile native floating dashboard
+        if: runner.os == 'macOS'
+        run: python bin/sim-manager ui --build-only --json

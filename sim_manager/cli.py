@@ -77,6 +77,8 @@ def parser():
     s.add_argument('kind',choices=['ios','android','all'],default='all',nargs='?')
     for name in ('status','cleanup','validate-config'):
         subs.add_parser(name, parents=[common])
+    s = subs.add_parser('ui',parents=[common],help='Open the native macOS floating dashboard')
+    s.add_argument('--build-only',action='store_true',help='Build the local app without opening it')
     s = subs.add_parser('watch',parents=[common])
     s.add_argument('--once',action='store_true')
     s.add_argument('--stop',action='store_true')
@@ -123,6 +125,10 @@ def main(argv=None):
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGHUP, interrupted)
     try:
+        if a.action == 'ui':
+            from .dashboard import launch
+            output(launch(a.state_dir,a.build_only),a.format)
+            return 0
         m = Manager(a.state_dir, a.config, allow_saved_config=a.action in ('release','renew','status','cleanup','boot','_provider','_create','watch'))
         if a.action == 'enable':
             result = m.enable(a.session,a.project,a.owner_pid)

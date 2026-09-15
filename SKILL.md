@@ -13,3 +13,5 @@ flowchart, configuration examples, and tests. Install the complete project,
 not only this entry-point file. The installed Skill is `skill/simulator-manager`.
 
 Repository: https://github.com/HankHuang0516/simulator-manager
+
+To view scheduling after activation, run `sim-manager ui` using the installed CLI. It builds and opens the native macOS floating dashboard. See [README.md](README.md#floating-dashboard).

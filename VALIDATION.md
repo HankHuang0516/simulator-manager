@@ -8,7 +8,7 @@ Apple Silicon arm64, macOS 26.6.2, Python 3.14.5, SQLite 3.53.4, Xcode 26.6 (17F
 
 ## Automated coverage
 
-The 61-test suite passed locally. A macOS CI SIGTERM run exposed an interrupt arriving immediately after BEGIN; the transaction guard now covers BEGIN itself, and all 21 targeted scheduler tests pass, including a deterministic real-SQLite rollback regression. The complete 62-test suite passed locally after the transaction fix. The suite also includes low-disk startup preflight and stable identity regressions (68 tests total). Real Anthill feedback exposed the old kern.boottime text changing with timezone and NTP microseconds, causing false stale reaping. macOS now uses kern.bootsessionuuid and UTC PID stamps; legacy live clock identities are protected if ambiguous. Upgrade handover uses the incoming stop implementation and restarts older watcher identity protocols. Complete committed creation specs survive delivery failures and can be recovered without adopting devices by name.
+All 68 tests passed locally after the final watcher handover and creation recovery fixes. The 61-test suite previously passed locally. A macOS CI SIGTERM run exposed an interrupt arriving immediately after BEGIN; the transaction guard now covers BEGIN itself, and all 21 targeted scheduler tests pass, including a deterministic real-SQLite rollback regression. The complete 62-test suite passed locally after the transaction fix. The suite also includes low-disk startup preflight and stable identity regressions (68 tests total). Real Anthill feedback exposed the old kern.boottime text changing with timezone and NTP microseconds, causing false stale reaping. macOS now uses kern.bootsessionuuid and UTC PID stamps; legacy live clock identities are protected if ambiguous. Upgrade handover uses the incoming stop implementation and restarts older watcher identity protocols. Complete committed creation specs survive delivery failures and can be recovered without adopting devices by name.
 
 - Cross-process FIFO, exclusion, observed intervals, weighted capacities and blocked-head progress.
 - Three parallel private creations reserve capacity before SDK calls; a fourth cannot exceed admission.
@@ -30,7 +30,7 @@ The validation supervisor was deliberately interrupted before boot readiness com
 
 This verifies real creation, startup/interruption handling, lease release, pressure fallback and exact-device idle shutdown. It **does not claim successful app UI validation or completed live iOS boot readiness**. The complete boot/work timing path is covered with fake SDK executables. Run the project's device-targeted checks on a host with sufficient resources for app verification.
 
-Android tools were absent from the tested shell PATH, but actual shared activation found the installed SDK tools through fallback discovery and successfully created a dedicated shutdown AVD from an installed system image. Real Android VM startup/app verification remains untested; adapter boot/idle-shutdown behavior is covered with fake executables.
+Android tools were absent from the tested shell PATH, but actual shared activation found the installed SDK tools through fallback discovery and successfully created a dedicated shutdown AVD from an installed system image. Subsequent supervised private Android boot attempts returned timeout/yield and released leases; startup logs reported HVF disabled and mprotect Permission denied even though emulator -accel-check and kern.hv_support reported support. Hardware/OS incapability is not established; actual boot readiness and app verification remain unconfirmed; adapter boot/idle-shutdown behavior is covered with fake executables.
 
 ## CI and boundaries
 
@@ -39,3 +39,7 @@ GitHub Actions runs Python 3.9 on Ubuntu and Python 3.14 on macOS. [Current work
 Coordination is cooperative for one Mac account and one local shared state. Private devices isolate writable device data, not host/SDK/desktop activity. Strict time policy requires supervised run. Unknown live-owner manual work, process-group escape, external automation workers, ambiguous PID reuse and partial creation and ambiguous shutdown fail closed; interrupted idle shutdown is retried only after its stopper dies and provenance is rechecked. Uninterruptible survivors keep their reservation even beyond the use deadline while safe reclamation waits. Static fallback VMs can stay booted; telemetry governs new admission rather than controlling arbitrary external VMs.
 
 Pause new callers, drain leases/queue and stop the verified watcher before installed-code upgrades.
+
+## Native dashboard
+
+The SwiftUI floating panel compiled on Apple Silicon with Swift 6.3.3 targeting macOS 13. Actual accessibility state and screenshot showed live task allocations, countdowns, pressure mode transitions and host metrics. Pin/unpin and session disclosure controls were exercised. The sample-data preview was rendered by the native app, not a mock web page. The macOS CI job also compiles the dashboard without launching it.
