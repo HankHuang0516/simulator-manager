@@ -44,7 +44,7 @@ def build(root=None, state_dir=None):
                 'CFBundleIdentifier':'com.hankhuang.simulator-manager.dashboard',
                 'CFBundleExecutable':'SimulatorManager','CFBundlePackageType':'APPL',
                 'CFBundleShortVersionString':__version__,'CFBundleVersion':'2',
-                'LSMinimumSystemVersion':'13.0','LSUIElement':True,
+                'LSMinimumSystemVersion':'13.0','LSUIElement':False,
                 'NSHighResolutionCapable':True,
                 'SimulatorManagerCLI':str(root/'bin/sim-manager'),
                 'SimulatorManagerState':str(state),

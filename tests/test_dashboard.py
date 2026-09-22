@@ -1,5 +1,6 @@
 import signal
 import subprocess
+import plistlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -9,6 +10,24 @@ from sim_manager import dashboard
 
 
 class DashboardHandoverTests(unittest.TestCase):
+    def test_bundle_and_runtime_policy_keep_dashboard_in_dock(self):
+        with tempfile.TemporaryDirectory(prefix='dashboard dock ') as temporary:
+            root = Path(temporary)
+            source = root/'dashboard/SimulatorManager.swift'
+            source.parent.mkdir(parents=True)
+            source.write_text((Path(__file__).parents[1]/'dashboard/SimulatorManager.swift').read_text())
+
+            def compile_app(arguments, **_kwargs):
+                Path(arguments[arguments.index('-o')+1]).write_bytes(b'app')
+                return subprocess.CompletedProcess(arguments,0)
+
+            with patch.object(dashboard.sys,'platform','darwin'), \
+                 patch.object(dashboard.subprocess,'run',side_effect=compile_app):
+                app = dashboard.build(root=root,state_dir=root/'state')
+            with (app/'Contents/Info.plist').open('rb') as file:
+                self.assertFalse(plistlib.load(file)['LSUIElement'])
+            self.assertIn('setActivationPolicy(.regular)',source.read_text())
+
     def test_process_inventory_matches_only_exact_managed_executable_path(self):
         with tempfile.TemporaryDirectory(prefix='dashboard app ') as temporary:
             app = Path(temporary)/'Simulator Manager.app'

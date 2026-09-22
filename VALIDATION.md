@@ -1,6 +1,6 @@
 # Validation report
 
-Validated through September 22, 2026. Current version 3.2.0; earlier sections preserve historical validation evidence.
+Validated through September 22, 2026. Current version 3.2.1; earlier sections preserve historical validation evidence.
 
 ## Local environment
 
@@ -55,6 +55,10 @@ Version 3.1.2 fixes native dashboard upgrade handover. An installer-run app repl
 ## Native language selection (3.2.0)
 
 The native dashboard now opens in Automatic (Device) mode on first launch and resolves any `zh` device locale to Traditional Chinese; all other device locales use English. The globe menu switches the dashboard and Quick Start immediately between Automatic, English and Traditional Chinese, and an explicit choice persists across a graceful app restart. Accessibility inspection verified the Chinese live dashboard, the English live dashboard, both localized language menus and Automatic returning to Chinese on this Traditional Chinese Mac. The final saved choice was restored to Automatic. All 102 tests pass, both Skill copies validate, Python/shell/JavaScript static checks pass, and the SwiftUI application compiles for macOS 13. No simulator or emulator was booted, stopped or reassigned for this interface-only verification; existing managed work was allowed to finish normally.
+
+## Dock presence (3.2.1)
+
+The native dashboard is a regular macOS application while running: its bundle no longer declares an agent-only UI and the Swift runtime uses the regular activation policy. The Dock icon reopens a hidden floating panel through the existing application reopen delegate, while the menu-bar entry remains available. A regression test builds a temporary bundle and verifies both required policies. The change does not alter scheduler, lease, simulator or emulator lifecycle behavior.
 
 ## Native dashboard
 

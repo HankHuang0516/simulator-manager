@@ -352,7 +352,7 @@ struct Dashboard: View {
     @MainActor static func main() {
         let app = NSApplication.shared
         let delegate = Delegate()
-        app.delegate = delegate; app.setActivationPolicy(.accessory)
+        app.delegate = delegate; app.setActivationPolicy(.regular)
         withExtendedLifetime(delegate) { app.run() }
     }
 }
