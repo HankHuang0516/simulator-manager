@@ -1,6 +1,6 @@
 # Validation report
 
-Validated through September 22, 2026. Current version 3.1.1; earlier sections preserve historical validation evidence.
+Validated through September 22, 2026. Current version 3.1.2; earlier sections preserve historical validation evidence.
 
 ## Local environment
 
@@ -49,6 +49,8 @@ The native SwiftUI application compiled for macOS 13, installed into `~/Applicat
 ## Warm-release coaching (3.1.1)
 
 All 100 tests passed locally in 54.963 seconds. Existing warm-reuse regressions still prove that consecutive supervised chunks reuse one boot, a matching queued owner protects its warm environment after idle expiry, release does not issue a shutdown, and only exact provenance-verified unleased environments can be retired. Compliance tests now verify that iOS and Android guidance explicitly tells a drifting task to release use rights without `simctl shutdown`, emulator close, or `adb emu kill`. Both installed-Skill copies pass validation; Python/shell/JavaScript syntax, `git diff --check`, and the native SwiftUI macOS 13 build pass. No live simulator was booted for this guidance-only change.
+
+Version 3.1.2 fixes native dashboard upgrade handover. An installer-run app replacement now validates the managed bundle marker, sends SIGTERM only to processes whose executable is the exact managed app path, waits for a clean exit, and defers rather than force-killing if the dashboard does not close. It then opens one new instance without `open -n`, preventing stale Quick Start copy and duplicate menu-bar items. Two exact-path/graceful-signal regressions bring the complete suite to 102 passing tests in 56.524 seconds. The watcher, Codex task processes and simulator runtimes are outside this exact path and are never targeted.
 
 ## Native dashboard
 

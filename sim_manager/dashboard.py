@@ -5,9 +5,12 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 from . import __version__
 
 
@@ -52,6 +55,49 @@ def build(root=None, state_dir=None):
     return app
 
 
+def running_dashboard_pids(app):
+    """Return only processes executing this exact managed app binary path."""
+    executable = str((Path(app)/'Contents/MacOS/SimulatorManager').resolve())
+    try:
+        result = subprocess.run(['/bin/ps','-axo','pid=,command='],capture_output=True,
+                                text=True,check=True,timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    pids = []
+    for line in result.stdout.splitlines():
+        match = re.match(r'\s*(\d+)\s+(.*)$',line)
+        if not match:
+            continue
+        command = match.group(2)
+        if command == executable or command.startswith(executable+' '):
+            pids.append(int(match.group(1)))
+    return pids
+
+
+def stop_existing_dashboard(app):
+    """Gracefully stop an exact managed dashboard so an upgrade loads new code."""
+    pids = running_dashboard_pids(app)
+    for pid in pids:
+        try:
+            os.kill(pid,signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    deadline = time.monotonic()+5
+    pending = set(pids)
+    while pending and time.monotonic()<deadline:
+        for pid in list(pending):
+            try:
+                os.kill(pid,0)
+            except ProcessLookupError:
+                pending.discard(pid)
+            except PermissionError as e:
+                raise ValueError('Could not replace the running Simulator Manager dashboard') from e
+        if pending:
+            time.sleep(.05)
+    if pending:
+        raise ValueError('Running Simulator Manager dashboard did not close; upgrade deferred')
+
+
 def install_user_app(app, target=None):
     target = Path(target or Path.home()/'Applications/Simulator Manager.app').expanduser().resolve()
     target.parent.mkdir(parents=True,exist_ok=True)
@@ -64,6 +110,7 @@ def install_user_app(app, target=None):
             raise ValueError('Refusing to replace an unrelated application at '+str(target)) from e
         if info.get('CFBundleIdentifier')!='com.hankhuang.simulator-manager.dashboard' or not info.get('SimulatorManagerManaged'):
             raise ValueError('Refusing to replace an unrelated application at '+str(target))
+        stop_existing_dashboard(target)
     temporary = Path(tempfile.mkdtemp(prefix='.Simulator Manager.',dir=target.parent))/'Simulator Manager.app'
     try:
         subprocess.run(['/usr/bin/ditto',str(app),str(temporary)],check=True,timeout=30)
@@ -84,9 +131,9 @@ def launch(state_dir=None, build_only=False, root=None, install_app=False, onboa
     launch_app = installed or app
     if not build_only:
         try:
+            if onboarding and not installed:
+                stop_existing_dashboard(launch_app)
             args = ['open']
-            if onboarding:
-                args.append('-n')
             args.extend([str(launch_app),'--args','--cli',str(root/'bin/sim-manager'),
                          '--state-dir',str(state)])
             if onboarding:
