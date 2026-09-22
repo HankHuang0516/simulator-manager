@@ -173,7 +173,12 @@ class DynamicTests(unittest.TestCase):
         self.assertEqual(self.status()['leases'],[])
 
     def test_renewal_count_and_hard_deadline_cannot_be_extended(self):
-        a=self.lease(ttl=1);m=Manager(self.state)
+        # Deliver the environment with a normal lease, then shorten only this
+        # fixture's renewable deadline. Environment creation time must not make
+        # a renewal-policy test race on a one-second admission budget.
+        a=self.lease();m=Manager(self.state)
+        with m.transaction():
+            m.db.execute('UPDATE leases SET expires=? WHERE token=?',(time.time()+.2,a['token']))
         hard=a['hard_expires']
         for _ in range(3):
             time.sleep(.02);r=m.renew(a['token'],1);self.assertEqual(r['hard_expires'],hard)

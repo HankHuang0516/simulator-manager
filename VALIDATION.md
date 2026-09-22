@@ -1,6 +1,6 @@
 # Validation report
 
-Validated through September 22, 2026. Current version 3.4.0; earlier sections preserve historical validation evidence.
+Validated through September 22, 2026. Current version 3.4.1; earlier sections preserve historical validation evidence.
 
 ## Local environment
 
@@ -81,6 +81,8 @@ Every supervised Tool/CLI command is now inspected before admission and explicit
 The native dashboard holds a nonblocking per-user advisory lock for its whole process lifetime. A competing CLI, Dock, Finder, installer or direct-binary launch posts a distributed reveal request, activates the existing application and exits before constructing another panel or menu-bar item. The lock is automatically released if the process exits or crashes. Upgrade replacement still uses the existing exact-managed-executable graceful handover.
 
 All 111 tests pass locally. New regressions cover pre-admission iOS/Android shutdown rejection, shutdown coaching despite a valid lease, Android action classification, MCP rejection, the native singleton primitives and onboarding focus behavior. Both Skill copies validate, Python/shell/JavaScript and whitespace checks pass, and Swift compiles the dashboard for macOS 13.
+
+Version 3.4.1 corrects the Plugin manifest version that remained at 3.3.1 in the initial 3.4.0 package. A regression now requires the core CLI version, MCP server version and `.codex-plugin/plugin.json` version to match, preventing Codex from installing current Tool code under a stale cache identity. The complete suite contains 112 tests. Its full rerun also exposed a pre-existing renewal test that gave dynamic environment creation only one second; the fixture now grants normally and transactionally shortens only its renewable deadline, preserving the policy assertion without coupling it to host delivery speed.
 
 ## Native dashboard
 

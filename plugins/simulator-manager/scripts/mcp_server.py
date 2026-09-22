@@ -12,6 +12,7 @@ import sys
 from typing import Any
 
 PROTOCOL_VERSION = "2025-03-26"
+SERVER_VERSION = "3.4.1"
 MAX_CAPTURE = 32768
 
 TOOLS = [
@@ -245,7 +246,7 @@ def handle(message: dict[str, Any]) -> dict[str, Any] | None:
         return None
     if method == "initialize":
         result = {"protocolVersion": PROTOCOL_VERSION, "capabilities": {"tools": {"listChanged": False}},
-                  "serverInfo": {"name": "simulator-manager", "version": "3.4.0"}}
+                  "serverInfo": {"name": "simulator-manager", "version": SERVER_VERSION}}
     elif method == "ping":
         result = {}
     elif method == "tools/list":

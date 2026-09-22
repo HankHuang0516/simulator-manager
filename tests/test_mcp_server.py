@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from sim_manager import __version__
+
 
 SERVER = Path(__file__).parents[1] / "plugins/simulator-manager/scripts/mcp_server.py"
 SPEC = importlib.util.spec_from_file_location("simulator_manager_mcp", SERVER)
@@ -15,6 +17,11 @@ SPEC.loader.exec_module(MCP)
 
 
 class MCPServerTests(unittest.TestCase):
+    def test_plugin_manifest_and_mcp_server_match_core_version(self):
+        manifest = json.loads((SERVER.parent.parent/'.codex-plugin/plugin.json').read_text())
+        self.assertEqual(manifest['version'],__version__)
+        self.assertEqual(MCP.SERVER_VERSION,__version__)
+
     def test_tool_catalog_has_supervised_runtime_and_read_only_status(self):
         names = {tool["name"] for tool in MCP.TOOLS}
         self.assertEqual(names, {
