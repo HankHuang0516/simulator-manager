@@ -24,9 +24,21 @@ if command -v codex >/dev/null 2>&1; then
     codex plugin marketplace upgrade hank-tools
   fi
   codex plugin add simulator-manager@hank-tools
-  echo "Simulator Manager Tool installed. Start a new Codex task, then say: Use simulator-manager for this project."
+  echo "Simulator Manager Codex Tool installed."
 else
   echo "CLI and Skill installed. Install the Codex app/CLI, then run:"
   echo "  codex plugin marketplace add $REPOSITORY --ref main"
   echo "  codex plugin add simulator-manager@hank-tools"
 fi
+
+echo "Creating the Simulator Manager application and opening Quick Start…"
+if "$HOME/.local/bin/sim-manager" ui --install-app --onboarding --json; then
+  echo "Dashboard entry: $HOME/Applications/Simulator Manager.app"
+  echo "The dashboard also remains available from the macOS menu bar."
+else
+  echo "The CLI and Codex Tool are installed, but the native dashboard could not be built." >&2
+  echo "Install Xcode Command Line Tools, then run: sim-manager ui --install-app --onboarding" >&2
+fi
+
+echo "Next: start a new Codex task and say: Use simulator-manager for this project."
+echo "Codex will register the task, run host checks first, and use managed runtime/UI requests only when needed."

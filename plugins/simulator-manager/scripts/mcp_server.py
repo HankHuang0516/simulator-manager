@@ -70,6 +70,19 @@ TOOLS = [
         "description": "Check the installed CLI version, configuration, shared state, and optional iOS/Android SDK commands without acquiring a simulator.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
+    {
+        "name": "simulator_manager_guidance",
+        "description": "Audit this registered Codex task for direct simulator/emulator commands outside managed leases. Return targeted teaching steps without stopping any task, device, or adb process. Explain every returned finding to the user before the next runtime/UI action.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session": {"type": "string", "minLength": 1},
+                "acknowledge": {"type": "boolean", "default": False},
+            },
+            "required": ["session"],
+            "additionalProperties": False,
+        },
+    },
 ]
 
 
@@ -145,11 +158,13 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
     if name == "simulator_manager_enable":
         session = _text(a.get("session"), "session")
         project = str(Path(_text(a.get("project"), "project")).expanduser().resolve())
-        argv = ["enable", "--session", session, "--project", project]
+        argv = ["enable", "--session", session, "--project", project, "--owner-pid", str(os.getpid())]
         if a.get("prepare", False):
             argv.append("--prepare")
         argv.append("--json")
-        return run_cli(argv, 300 if a.get("prepare", False) else 30)
+        enabled = run_cli(argv, 300 if a.get("prepare", False) else 30)
+        enabled["guidance"] = run_cli(["audit", "--session", session, "--json"])
+        return enabled
     if name == "simulator_manager_run":
         platform = a.get("platform")
         if platform not in ("ios", "android", "gui"):
@@ -188,6 +203,13 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
             "state": run_cli(["status", "--json"]),
             "optional_tools": {tool: shutil.which(tool) for tool in ("xcrun", "adb", "emulator")},
         }
+    if name == "simulator_manager_guidance":
+        session = _text(a.get("session"), "session")
+        argv = ["audit", "--session", session]
+        if a.get("acknowledge", False):
+            argv.append("--acknowledge")
+        argv.append("--json")
+        return run_cli(argv)
     raise ToolError(f"Unknown tool: {name}")
 
 
@@ -207,7 +229,7 @@ def handle(message: dict[str, Any]) -> dict[str, Any] | None:
         return None
     if method == "initialize":
         result = {"protocolVersion": PROTOCOL_VERSION, "capabilities": {"tools": {"listChanged": False}},
-                  "serverInfo": {"name": "simulator-manager", "version": "3.0.0"}}
+                  "serverInfo": {"name": "simulator-manager", "version": "3.1.0"}}
     elif method == "ping":
         result = {}
     elif method == "tools/list":

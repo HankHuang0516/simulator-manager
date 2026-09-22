@@ -1,6 +1,6 @@
 # Validation report
 
-Validated on September 15, 2026. Version 2.0.3.
+Validated through September 22, 2026. Current version 3.1.0; earlier sections preserve historical validation evidence.
 
 ## Local environment
 
@@ -39,6 +39,12 @@ GitHub Actions runs Python 3.9 on Ubuntu and Python 3.14 on macOS. [Current work
 Coordination is cooperative for one Mac account and one local shared state. Private devices isolate writable device data, not host/SDK/desktop activity. Strict time policy requires supervised run. Unknown live-owner manual work, process-group escape, external automation workers, ambiguous PID reuse and partial creation and ambiguous shutdown fail closed; interrupted idle shutdown is retried only after its stopper dies and provenance is rechecked. Uninterruptible survivors keep their reservation even beyond the use deadline while safe reclamation waits. Static fallback VMs can stay booted; telemetry governs new admission rather than controlling arbitrary external VMs.
 
 Pause new callers, drain leases/queue and stop the verified watcher before installed-code upgrades.
+
+## Tool onboarding and compliance coaching (3.1.0)
+
+All 100 tests passed locally in 55.206 seconds. Three new compliance tests cover task-specific direct `simctl` guidance, matching-lease acceptance, and resolution after the observed process exits without sending any signal. MCP tests verify the seventh Tool action and durable task-owner registration. Plugin and both Skill validators pass.
+
+The native SwiftUI application compiled for macOS 13, installed into `~/Applications`, opened a localized five-step Quick Start, advanced through every lesson, and returned to a live dashboard with its replay button. A launch-context regression found that a native app starts in `/`, where Homebrew Python could stall during site initialization; the dashboard now sets the CLI directory explicitly before every status process. The corrected dashboard refreshed live state without orphan status processes. Website desktop rendering and the new bilingual post-install section were visually inspected. No live simulator was booted for this UI/onboarding change.
 
 ## Native dashboard
 

@@ -221,6 +221,11 @@ class Manager:
           owner_pid INTEGER,owner_start TEXT);
         CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT,
           time REAL NOT NULL,event TEXT NOT NULL,resource TEXT,session TEXT,detail TEXT);
+        CREATE TABLE IF NOT EXISTS compliance_findings(
+          fingerprint TEXT PRIMARY KEY,session TEXT NOT NULL,project TEXT NOT NULL,
+          platform TEXT NOT NULL,kind TEXT NOT NULL,pid INTEGER,
+          first_seen REAL NOT NULL,last_seen REAL NOT NULL,active INTEGER NOT NULL DEFAULT 1,
+          guidance TEXT NOT NULL,acknowledged_at REAL);
         ''')
         with self.transaction():
             columns = {r['name'] for r in self.db.execute('PRAGMA table_info(leases)')}
@@ -526,7 +531,7 @@ class Manager:
                 'mode':self.config['mode'],'coordination':'cooperative','next':'Use sim-manager run with this session label for every runtime/UI test'}
 
     def status(self):
-        from . import monitor
+        from . import monitor, compliance
         monitor.update(self)
         with self.transaction():
             reaped = self.initial_reaped + self.sweep()
@@ -539,6 +544,7 @@ class Manager:
                     'pools':self.config['pools'], 'global_capacity':self.config['global_capacity'],
                     'leases':leases, 'queue':queue, 'reaped':reaped,
                     'sessions':[dict(r) for r in self.db.execute('SELECT * FROM sessions ORDER BY last_seen DESC')],
+                    'compliance':compliance.recent(self),
                     'events':[dict(r) for r in self.db.execute('SELECT * FROM events ORDER BY seq DESC LIMIT 30')]}
 
     def cleanup(self):

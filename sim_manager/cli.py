@@ -77,8 +77,13 @@ def parser():
     s.add_argument('kind',choices=['ios','android','all'],default='all',nargs='?')
     for name in ('status','cleanup','validate-config'):
         subs.add_parser(name, parents=[common])
+    s = subs.add_parser('audit',parents=[common],help='Detect unmanaged simulator commands and return session-specific coaching')
+    s.add_argument('--session')
+    s.add_argument('--acknowledge',action='store_true')
     s = subs.add_parser('ui',parents=[common],help='Open the native macOS floating dashboard')
     s.add_argument('--build-only',action='store_true',help='Build the local app without opening it')
+    s.add_argument('--install-app',action='store_true',help='Install a Finder/Launchpad entry in ~/Applications')
+    s.add_argument('--onboarding',action='store_true',help='Open the step-by-step Quick Start guide')
     s = subs.add_parser('watch',parents=[common])
     s.add_argument('--once',action='store_true')
     s.add_argument('--stop',action='store_true')
@@ -127,7 +132,7 @@ def main(argv=None):
     try:
         if a.action == 'ui':
             from .dashboard import launch
-            output(launch(a.state_dir,a.build_only),a.format)
+            output(launch(a.state_dir,a.build_only,install_app=a.install_app,onboarding=a.onboarding),a.format)
             return 0
         m = Manager(a.state_dir, a.config, allow_saved_config=a.action in ('release','renew','status','cleanup','boot','repair-android-target','_provider','_create','watch'))
         if a.action == 'enable':
@@ -214,6 +219,13 @@ def main(argv=None):
             result = m.status()
         elif a.action == 'cleanup':
             result = m.cleanup()
+        elif a.action == 'audit':
+            from . import compliance
+            if a.acknowledge:
+                if not a.session:
+                    raise ManagerError('--acknowledge requires --session')
+                compliance.acknowledge(m,a.session)
+            result = compliance.audit(m,a.session)
         elif a.action == 'validate-config':
             result = {'valid':True,'config':str(m.config_path)}
         else:

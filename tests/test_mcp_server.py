@@ -20,7 +20,18 @@ class MCPServerTests(unittest.TestCase):
         self.assertEqual(names, {
             "simulator_manager_status", "simulator_manager_enable", "simulator_manager_run",
             "simulator_manager_cleanup", "simulator_manager_ui", "simulator_manager_doctor",
+            "simulator_manager_guidance",
         })
+
+    def test_enable_registers_long_lived_mcp_owner_and_returns_guidance(self):
+        completed = subprocess.CompletedProcess([], 0, '{"shared_mode":true}\n', "")
+        with mock.patch.object(MCP, "cli_path", return_value="/tmp/sim-manager"), \
+             mock.patch.object(MCP.subprocess, "run", return_value=completed) as run:
+            result = MCP.invoke_tool("simulator_manager_enable", {"session":"task-1","project":"/tmp/app"})
+        self.assertTrue(result["shared_mode"])
+        self.assertEqual(run.call_count, 2)
+        self.assertIn("--owner-pid", run.call_args_list[0].args[0])
+        self.assertEqual(run.call_args_list[1].args[0][1:4], ["audit","--session","task-1"])
 
     def test_run_builds_argv_without_shell(self):
         completed = subprocess.CompletedProcess([], 0, '{"released":true,"exit_code":0}\n', "")

@@ -1,6 +1,6 @@
 {
   "name": "simulator-manager",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Coordinate iOS Simulators and Android Emulators across Codex sessions with private environments, FIFO fallback, fair-use deadlines, and guaranteed release.",
   "author": {
     "name": "Hank Huang",
@@ -15,7 +15,7 @@
   "interface": {
     "displayName": "Simulator Manager",
     "shortDescription": "Share mobile simulators safely across Codex sessions",
-    "longDescription": "Gives Codex local tools to inspect, enable, schedule, and monitor shared iOS Simulator and Android Emulator resources. Runtime work is supervised so queue fairness, total occupancy limits, pressure fallback, and release on failure are enforced.",
+    "longDescription": "Gives Codex local tools to inspect, enable, schedule, monitor, and coach shared iOS Simulator and Android Emulator use. Runtime work is supervised so queue fairness, total occupancy limits, pressure fallback, and release on failure are enforced.",
     "developerName": "Hank Huang",
     "category": "Developer Tools",
     "capabilities": ["Interactive", "Read", "Write"],
@@ -25,7 +25,8 @@
     "defaultPrompt": [
       "Enable Simulator Manager for this project",
       "Run this UI test with a managed simulator",
-      "Show the shared simulator queue and host pressure"
+      "Show the shared simulator queue and host pressure",
+      "Check this task for simulator-sharing guidance"
     ],
     "brandColor": "#0A84FF",
     "composerIcon": "./assets/icon.svg",

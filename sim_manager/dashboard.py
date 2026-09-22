@@ -7,16 +7,18 @@ from pathlib import Path
 import plistlib
 import subprocess
 import sys
+import tempfile
 from . import __version__
 
 
-def build(root=None):
+def build(root=None, state_dir=None):
     if sys.platform != 'darwin':
         raise ValueError('The floating dashboard requires macOS 13+ and Xcode command line tools.')
     root = Path(root or Path(__file__).resolve().parent.parent).resolve()
     source = root/'dashboard/SimulatorManager.swift'
     app = root/'Simulator Manager.app'
-    digest = hashlib.sha256(source.read_bytes()+__version__.encode()).hexdigest()
+    state = Path(state_dir or os.environ.get('SIM_MANAGER_STATE_DIR',str(Path.home()/'Library/Application Support/simulator-manager'))).expanduser().resolve()
+    digest = hashlib.sha256(source.read_bytes()+__version__.encode()+str(root/'bin/sim-manager').encode()+str(state).encode()).hexdigest()
     with (root/'.dashboard-build.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
         exe = app/'Contents/MacOS/SimulatorManager'
@@ -40,24 +42,60 @@ def build(root=None):
                 'CFBundleExecutable':'SimulatorManager','CFBundlePackageType':'APPL',
                 'CFBundleShortVersionString':__version__,'CFBundleVersion':'2',
                 'LSMinimumSystemVersion':'13.0','LSUIElement':True,
-                'NSHighResolutionCapable':True}
+                'NSHighResolutionCapable':True,
+                'SimulatorManagerCLI':str(root/'bin/sim-manager'),
+                'SimulatorManagerState':str(state),
+                'SimulatorManagerManaged':True}
         with (app/'Contents/Info.plist').open('wb') as f:
             plistlib.dump(info,f)
         marker.write_text(digest+'\n')
     return app
 
 
-def launch(state_dir=None, build_only=False, root=None):
-    root = Path(root or Path(__file__).resolve().parent.parent).resolve()
-    app = build(root)
-    if not build_only:
-        state = Path(state_dir or os.environ.get('SIM_MANAGER_STATE_DIR',str(Path.home()/'Library/Application Support/simulator-manager'))).expanduser().resolve()
+def install_user_app(app, target=None):
+    target = Path(target or Path.home()/'Applications/Simulator Manager.app').expanduser().resolve()
+    target.parent.mkdir(parents=True,exist_ok=True)
+    if target.exists():
+        plist = target/'Contents/Info.plist'
         try:
-            subprocess.run(['open',str(app),'--args','--cli',str(root/'bin/sim-manager'),
-                            '--state-dir',str(state)],check=True)
+            with plist.open('rb') as f:
+                info = plistlib.load(f)
+        except (OSError, plistlib.InvalidFileException) as e:
+            raise ValueError('Refusing to replace an unrelated application at '+str(target)) from e
+        if info.get('CFBundleIdentifier')!='com.hankhuang.simulator-manager.dashboard' or not info.get('SimulatorManagerManaged'):
+            raise ValueError('Refusing to replace an unrelated application at '+str(target))
+    temporary = Path(tempfile.mkdtemp(prefix='.Simulator Manager.',dir=target.parent))/'Simulator Manager.app'
+    try:
+        subprocess.run(['/usr/bin/ditto',str(app),str(temporary)],check=True,timeout=30)
+        if target.exists():
+            subprocess.run(['/bin/rm','-rf',str(target)],check=True,timeout=30)
+        temporary.replace(target)
+    finally:
+        if temporary.parent.exists():
+            subprocess.run(['/bin/rm','-rf',str(temporary.parent)],check=False,timeout=30)
+    return target
+
+
+def launch(state_dir=None, build_only=False, root=None, install_app=False, onboarding=False):
+    root = Path(root or Path(__file__).resolve().parent.parent).resolve()
+    state = Path(state_dir or os.environ.get('SIM_MANAGER_STATE_DIR',str(Path.home()/'Library/Application Support/simulator-manager'))).expanduser().resolve()
+    app = build(root,state)
+    installed = install_user_app(app) if install_app else None
+    launch_app = installed or app
+    if not build_only:
+        try:
+            args = ['open']
+            if onboarding:
+                args.append('-n')
+            args.extend([str(launch_app),'--args','--cli',str(root/'bin/sim-manager'),
+                         '--state-dir',str(state)])
+            if onboarding:
+                args.append('--onboarding')
+            subprocess.run(args,check=True)
         except subprocess.SubprocessError as e:
             raise ValueError('Could not open the dashboard: '+str(e)) from e
-    return {'dashboard':str(app),'opened':not build_only,'controls':'view-only','refresh_seconds':2}
+    return {'dashboard':str(launch_app),'installed_app':str(installed) if installed else None,
+            'opened':not build_only,'onboarding':onboarding,'controls':'view-and-guidance','refresh_seconds':2}
 
 
 if __name__ == '__main__':

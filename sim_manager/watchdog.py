@@ -81,13 +81,14 @@ def enforce_orphans(manager):
 
 
 def tick(manager):
-    from . import monitor, dynamic
+    from . import monitor, dynamic, compliance
     monitor.update(manager)
     enforce_orphans(manager)
     retired = dynamic.retire_idle(manager)
+    coaching = compliance.audit(manager)
     with manager.transaction():
         reaped = manager.sweep()
-    return {'reaped':reaped,'retired':retired,'scheduler':monitor.admission(manager)}
+    return {'reaped':reaped,'retired':retired,'coaching':coaching,'scheduler':monitor.admission(manager)}
 
 
 def watch(manager, once=False):
