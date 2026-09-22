@@ -78,6 +78,15 @@ class DashboardHandoverTests(unittest.TestCase):
             stop.assert_called_once_with(source.resolve())
             self.assertEqual((target/'Contents/marker').read_text(),'managed')
 
+    def test_open_retries_transient_launchservices_failure(self):
+        failure = subprocess.CalledProcessError(1,['open','Simulator Manager.app'])
+        success = subprocess.CompletedProcess(['open','Simulator Manager.app'],0)
+        with patch.object(dashboard.subprocess,'run',side_effect=[failure,success]) as run, \
+             patch.object(dashboard.time,'sleep') as sleep:
+            dashboard.open_application(['open','Simulator Manager.app'])
+        self.assertEqual(run.call_count,2)
+        sleep.assert_called_once_with(.5)
+
 
 if __name__ == '__main__':
     unittest.main()

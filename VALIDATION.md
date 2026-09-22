@@ -1,6 +1,6 @@
 # Validation report
 
-Validated through September 22, 2026. Current version 3.2.2; earlier sections preserve historical validation evidence.
+Validated through September 22, 2026. Current version 3.2.3; earlier sections preserve historical validation evidence.
 
 ## Local environment
 
@@ -61,6 +61,8 @@ The native dashboard now opens in Automatic (Device) mode on first launch and re
 The native dashboard is a regular macOS application while running: its bundle no longer declares an agent-only UI and the Swift runtime uses the regular activation policy. The Dock icon reopens a hidden floating panel through the existing application reopen delegate, while the menu-bar entry remains available. A regression test builds a temporary bundle and verifies both required policies. The change does not alter scheduler, lease, simulator or emulator lifecycle behavior.
 
 Version 3.2.2 closes a duplicate-dashboard handover gap exposed during live Dock verification. Before copying the build bundle into Applications, installation now gracefully stops only a process executing that exact build-bundle path, then applies the existing exact-path handover to the Applications bundle. A regression copies a temporary managed app and verifies the build path is handed over first. This prevents a prior internal build and the Applications copy from sharing one bundle identifier at the same time; no task, watcher, simulator, emulator, ADB process or lease is targeted.
+
+Version 3.2.3 handles the transient LaunchServices lag observed immediately after that two-bundle handover. Opening the installed app now retries at most three times with a 500 ms pause; it still returns a real error if all attempts fail. A regression verifies one failed open followed by success, including the single bounded pause. Live recovery confirmed the same installed Applications bundle opens normally after the handover.
 
 ## Native dashboard
 

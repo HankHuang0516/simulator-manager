@@ -126,6 +126,18 @@ def install_user_app(app, target=None):
     return target
 
 
+def open_application(arguments, attempts=3):
+    """Open the dashboard after an app handover, tolerating transient LaunchServices lag."""
+    for attempt in range(attempts):
+        try:
+            subprocess.run(arguments,check=True)
+            return
+        except subprocess.SubprocessError:
+            if attempt+1 == attempts:
+                raise
+            time.sleep(.5)
+
+
 def launch(state_dir=None, build_only=False, root=None, install_app=False, onboarding=False):
     root = Path(root or Path(__file__).resolve().parent.parent).resolve()
     state = Path(state_dir or os.environ.get('SIM_MANAGER_STATE_DIR',str(Path.home()/'Library/Application Support/simulator-manager'))).expanduser().resolve()
@@ -141,7 +153,7 @@ def launch(state_dir=None, build_only=False, root=None, install_app=False, onboa
                          '--state-dir',str(state)])
             if onboarding:
                 args.append('--onboarding')
-            subprocess.run(args,check=True)
+            open_application(args)
         except subprocess.SubprocessError as e:
             raise ValueError('Could not open the dashboard: '+str(e)) from e
     return {'dashboard':str(launch_app),'installed_app':str(installed) if installed else None,
