@@ -19,13 +19,17 @@ GUIDANCE = {
         'This task used an iOS simulator outside Simulator Manager. Build and run host '
         'tests first. For runtime or UI validation, use simulator_manager_run (or '
         'sim-manager run ios) with this task ID and project path; target only the '
-        'returned SIM_MANAGER_UDID and let the supervised call release automatically.'
+        'returned SIM_MANAGER_UDID and let the supervised call release automatically. '
+        'Release use rights without running simctl shutdown; leave the private simulator '
+        'warm so Simulator Manager can reuse or retire it safely.'
     ),
     'android': (
         'This task used an Android emulator outside Simulator Manager. Build and run '
         'host tests first. For runtime or UI validation, use simulator_manager_run '
         '(or sim-manager run android) with this task ID and project path; target only '
-        'the returned SIM_MANAGER_SERIAL and never stop the shared adb server.'
+        'the returned SIM_MANAGER_SERIAL. Release use rights without closing the emulator '
+        'or running adb emu kill; leave it warm for managed reuse and never stop the shared '
+        'adb server.'
     ),
 }
 

@@ -46,6 +46,7 @@ class ComplianceTests(unittest.TestCase):
         self.assertEqual((finding['session'], finding['platform'], finding['kind']),
                          ('task-1', 'ios', 'direct-simctl'))
         self.assertNotIn('11111111', finding['guidance'])
+        self.assertIn('without running simctl shutdown', finding['guidance'])
         self.assertEqual(len(self.manager.status()['compliance']), 1)
 
     def test_existing_platform_lease_makes_matching_process_compliant(self):
@@ -59,7 +60,8 @@ class ComplianceTests(unittest.TestCase):
     def test_disappeared_process_resolves_finding_without_stopping_anything(self):
         first = {os.getpid():(1,'codex task'), 43212:(os.getpid(),'adb -s emulator-5554 shell getprop')}
         with patch.object(compliance, '_processes', return_value=first):
-            compliance.audit(self.manager, 'task-1')
+            detected = compliance.audit(self.manager, 'task-1')
+        self.assertIn('without closing the emulator', detected['findings'][0]['guidance'])
         with patch.object(compliance, '_processes', return_value={os.getpid():(1,'codex task')}):
             result = compliance.audit(self.manager, 'task-1')
         self.assertEqual(result['active_findings'], 0)

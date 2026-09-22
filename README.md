@@ -60,7 +60,7 @@ This is device-data isolation similar to dedicated development environments. It 
 
 Private identity does not mean permanent occupancy. Keep the returned session label stable, including across tool calls. A new label or different project path creates a different environment. At `max_environments`, new owners wait/timeout; existing environments are never silently erased or reassigned. Failed partial creations remain visible and quarantined for operator inspection.
 
-Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 3.1.0.
+Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 3.1.1.
 
 ## Time limits and fair yielding
 
@@ -140,7 +140,7 @@ Version 2.0.3 retries read-only ADB inventory, AVD-name and boot-property querie
 
 ## Warm environment reuse
 
-Version 2.0.2 prioritizes a queued request for its own running private environment before idle retirement. A queue entry or a degraded stage alone no longer causes shutdown. Maintenance reclaims an unleased private VM when running occupancy exceeds admission capacity, a FIFO-head cold environment needs a slot, critical host telemetry requires relief, or the configured idle timeout expires. Pending matching warm requests remain protected. Each maintenance tick retires at most one provenance-verified VM and retains its installed apps/userdata. Lease release and VM shutdown remain separate: fair yielding gives up use rights without necessarily restarting the device.
+Version 2.0.2 prioritizes a queued request for its own running private environment before idle retirement. A queue entry or a degraded stage alone no longer causes shutdown. Maintenance reclaims an unleased private VM when running occupancy exceeds admission capacity, a FIFO-head cold environment needs a slot, critical host telemetry requires relief, or the configured idle timeout expires. Pending matching warm requests remain protected. Each maintenance tick retires at most one provenance-verified VM and retains its installed apps/userdata. Lease release and VM shutdown remain separate: fair yielding gives up use rights without necessarily restarting the device. Sessions must release without running `simctl shutdown`, `adb emu kill`, emulator-close actions, or shutdown cleanup traps; the manager alone decides when an unleased device is reused warm or safely retired.
 
 ## CLI examples
 

@@ -50,7 +50,7 @@ Substitute project identifiers. Use `sh -eu` for multi-step failure propagation.
 
 For visible desktop automation, add **`--foreground`** to the mobile request. The manager atomically serializes foreground requests and the `gui` pool. Do not acquire a nested GUI lease while holding a simulator. Headless/device-targeted work can run in parallel private environments.
 
-Only use assigned `SIM_MANAGER_UDID` / `SIM_MANAGER_SERIAL`. Never use `booted`, an implicit adb target, arbitrary devices, `shutdown all`, `erase all`, `adb kill-server`, or another session's device. Boot through `run --boot` or `boot TOKEN`. Release frees use rights, preserving session device data. Only the manager's idle maintenance may stop its own provenance-verified **unleased private** VM by exact identifier; sessions must not stop or erase devices themselves.
+Only use assigned `SIM_MANAGER_UDID` / `SIM_MANAGER_SERIAL`. Never use `booted`, an implicit adb target, arbitrary devices, `shutdown all`, `erase all`, `adb kill-server`, or another session's device. Boot through `run --boot` or `boot TOKEN`. **Release the lease without powering off the simulator or emulator.** Release frees use rights while leaving a verified private VM warm for the next managed request and preserving session device data. Do not run `simctl shutdown`, `adb emu kill`, close an emulator to end a managed run, or add shutdown commands to cleanup traps. Only the manager's idle maintenance may stop its own provenance-verified **unleased private** VM by exact identifier for real capacity needs, critical pressure, or the configured idle timeout.
 
 ## Occupancy and fair-use rules
 
@@ -84,7 +84,7 @@ When asked to view scheduling, run the installed CLI `sim-manager ui`. On macOS 
 
 Version 2.0.1 corrects new AVD root targets to the installed image's integer major API, keeping Major.Minor image paths. Do not replace `android-0` with a decimal/unknown API. If boot reports an invalid root target on an existing private AVD, acquire a short valid manual lease with a verified durable owner, set release traps/finally, and run `repair-android-target TOKEN` before `boot TOKEN`. This command only repairs your assigned idle private manifest after verifying no VM/work/occupied ports and valid installed SDK image metadata. It changes no userdata, SDK files, signatures or safety settings and does not reset deadlines. Rejecting a busy/external/ambiguous environment is a blocker to resolve through its owner, not permission to stop it. No background migration or cross-session repair is allowed.
 
-Warm reuse: matching pending requests protect their running private environment. A queue or degraded stage alone does not trigger shutdown. Maintenance may retire unleased VMs for actual capacity needs, critical telemetry or the configured idle timeout; retain data and let the manager control retirement. Never hold/renew a lease merely to keep a VM warm.
+Warm reuse: matching pending requests protect their running private environment. A queue or degraded stage alone does not trigger shutdown. Normal session completion means release only; it does not mean power off. Maintenance may retire unleased VMs for actual capacity needs, critical telemetry or the configured idle timeout; retain data and let the manager control retirement. Never hold/renew a lease merely to keep a VM warm.
 
 ## Unity shared ADB compatibility
 

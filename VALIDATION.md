@@ -1,6 +1,6 @@
 # Validation report
 
-Validated through September 22, 2026. Current version 3.1.0; earlier sections preserve historical validation evidence.
+Validated through September 22, 2026. Current version 3.1.1; earlier sections preserve historical validation evidence.
 
 ## Local environment
 
@@ -45,6 +45,10 @@ Pause new callers, drain leases/queue and stop the verified watcher before insta
 All 100 tests passed locally in 55.206 seconds. Three new compliance tests cover task-specific direct `simctl` guidance, matching-lease acceptance, and resolution after the observed process exits without sending any signal. MCP tests verify the seventh Tool action and durable task-owner registration. Plugin and both Skill validators pass.
 
 The native SwiftUI application compiled for macOS 13, installed into `~/Applications`, opened a localized five-step Quick Start, advanced through every lesson, and returned to a live dashboard with its replay button. A launch-context regression found that a native app starts in `/`, where Homebrew Python could stall during site initialization; the dashboard now sets the CLI directory explicitly before every status process. The corrected dashboard refreshed live state without orphan status processes. Website desktop rendering and the new bilingual post-install section were visually inspected. No live simulator was booted for this UI/onboarding change.
+
+## Warm-release coaching (3.1.1)
+
+All 100 tests passed locally in 54.963 seconds. Existing warm-reuse regressions still prove that consecutive supervised chunks reuse one boot, a matching queued owner protects its warm environment after idle expiry, release does not issue a shutdown, and only exact provenance-verified unleased environments can be retired. Compliance tests now verify that iOS and Android guidance explicitly tells a drifting task to release use rights without `simctl shutdown`, emulator close, or `adb emu kill`. Both installed-Skill copies pass validation; Python/shell/JavaScript syntax, `git diff --check`, and the native SwiftUI macOS 13 build pass. No live simulator was booted for this guidance-only change.
 
 ## Native dashboard
 
