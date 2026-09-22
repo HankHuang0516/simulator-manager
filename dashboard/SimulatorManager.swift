@@ -15,7 +15,11 @@ struct Lease: Decodable, Identifiable {
 struct Waiter: Decodable, Identifiable { let seq: Int; let pool: String; let session: String; let project: String; let created: Double; var id: Int { seq } }
 struct Session: Decodable, Identifiable { let session: String; let project: String; var id: String { session } }
 struct Environment: Decodable, Identifiable { let resource: String; let pool: String; let project: String; let session: String; let phase: String; let running: Int; var id: String { resource } }
-struct Event: Decodable, Identifiable { let seq: Int; let time: Double; let event: String; let session: String?; let resource: String?; var id: Int { seq } }
+struct Event: Decodable, Identifiable {
+    let seq: Int; let time: Double; let event: String; let session: String?; let resource: String?
+    let project: String?; let pool: String?; let started_at: Double?; let duration_seconds: Double?
+    var id: Int { seq }
+}
 struct ComplianceFinding: Decodable, Identifiable {
     let fingerprint: String; let session: String; let project: String; let platform: String
     let kind: String; let first_seen: Double; let last_seen: Double; let active: Int; let guidance: String
@@ -150,6 +154,10 @@ let mint = Color(red: 0.08, green: 0.61, blue: 0.48)
 func projectName(_ path: String) -> String { URL(fileURLWithPath: path).lastPathComponent }
 func symbol(_ pool: String) -> String { pool == "ios" ? "iphone" : pool == "android" ? "smartphone" : "display" }
 func duration(_ seconds: Double) -> String { let n = max(0, Int(seconds)); return String(format: "%02d:%02d", n/60, n%60) }
+func activityDuration(_ seconds: Double) -> String {
+    let n = max(0,Int(seconds)); return n >= 3600 ? String(format:"%d:%02d:%02d",n/3600,(n%3600)/60,n%60) : String(format:"%02d:%02d",n/60,n%60)
+}
+func activityClock(_ seconds: Double) -> String { Date(timeIntervalSince1970:seconds).formatted(date:.omitted,time:.standard) }
 func tr(_ english: String, _ chinese: String, _ zh: Bool) -> String { zh ? chinese : english }
 func pressureName(_ value: String, _ zh: Bool) -> String {
     if !zh { return value.capitalized }
@@ -189,6 +197,40 @@ struct LanguagePicker: View {
         } label: {
             Image(systemName:"globe").font(.system(size:12,weight:.semibold)).foregroundStyle(lavender).frame(width:27,height:27).background(.white.opacity(0.6),in:Circle())
         }.menuStyle(.borderlessButton).frame(width:27).help(model.text("Change language","切換語言"))
+    }
+}
+
+struct ActivityRow: View {
+    let event: Event; let chinese: Bool
+    var project: String { event.project.map(projectName) ?? (event.session.map { String($0.prefix(12)) } ?? "System") }
+    var body: some View {
+        VStack(alignment:.leading,spacing:6) {
+            HStack(spacing:7) {
+                Circle().fill(event.event == "acquired" ? lavender : event.event == "released" ? mint : Color.orange).frame(width:6,height:6)
+                Text(eventName(event.event,chinese)).font(.system(size:11,weight:.semibold))
+                Spacer()
+                Text(activityClock(event.time)).font(.system(size:9)).foregroundStyle(.secondary)
+            }
+            HStack(spacing:6) {
+                Image(systemName:event.pool.map(symbol) ?? "person.crop.square").foregroundStyle(lavender)
+                Text(project).font(.system(size:10,weight:.medium)).lineLimit(1)
+                Spacer()
+                if let pool = event.pool { CapsuleLabel(text:pool.uppercased(),color:lavender) }
+            }
+            if let session = event.session {
+                Text("Task \(session)").font(.system(size:9,design:.monospaced)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            }
+            if let total = event.duration_seconds, event.event == "released" || event.event == "stale-reaped" || event.event == "acquired" {
+                HStack(spacing:5) {
+                    Image(systemName:"timer").foregroundStyle(mint)
+                    Text(event.event == "acquired" ? tr("Elapsed","已使用",chinese) : tr("Total occupancy","總占用",chinese)).font(.system(size:9,weight:.semibold))
+                    Text(activityDuration(total)).font(.system(size:10,weight:.semibold,design:.monospaced))
+                    Spacer()
+                    if event.event != "acquired", let started = event.started_at { Text("\(activityClock(started)) → \(activityClock(event.time))").font(.system(size:8)).foregroundStyle(.secondary) }
+                }
+            }
+            if let resource = event.resource { Text(resource).font(.system(size:8,design:.monospaced)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
+        }.padding(11).background(.white.opacity(0.58),in:RoundedRectangle(cornerRadius:14))
     }
 }
 
@@ -278,8 +320,8 @@ struct Dashboard: View {
                             VStack(spacing:8) { ForEach(s.environments) { env in HStack { Image(systemName:symbol(env.pool)).foregroundStyle(lavender); Text(projectName(env.project)).font(.system(size:11)).lineLimit(1); Spacer(); CapsuleLabel(text:env.running == 1 ? tr("Running","執行中",zh) : phaseName(env.phase,zh)) }.padding(.vertical,5) } }.padding(.top,7)
                         } label: { SectionTitle(title:tr("Private environments","私人環境",zh),count:s.environments.count) }.tint(lavender)
                         if !s.events.isEmpty { DisclosureGroup {
-                            VStack(alignment:.leading,spacing:9) { ForEach(Array(s.events.prefix(8))) { event in HStack { Circle().fill(event.event == "acquired" ? lavender : mint).frame(width:5,height:5); Text(eventName(event.event,zh)).font(.system(size:10)); Spacer(); Text(Date(timeIntervalSince1970:event.time),style:.time).font(.system(size:9)).foregroundStyle(.secondary) } } }.padding(.top,8)
-                        } label: { SectionTitle(title:tr("Recent activity","最近活動",zh),count:min(8,s.events.count)) }.tint(lavender) }
+                            VStack(alignment:.leading,spacing:8) { ForEach(Array(s.events.prefix(10))) { event in ActivityRow(event:event,chinese:zh) } }.padding(.top,8)
+                        } label: { SectionTitle(title:tr("Recent activity","最近活動",zh),count:min(10,s.events.count)) }.tint(lavender) }
                     } else { EmptyRow(icon:"antenna.radiowaves.left.and.right",title:tr("Loading shared state","正在載入共用狀態",zh),detail:tr("The dashboard follows your local manager.","浮框會讀取本機 Simulator Manager。",zh)) }
                 }.padding(.horizontal,20).padding(.bottom,18)
             }.scrollIndicators(.hidden)

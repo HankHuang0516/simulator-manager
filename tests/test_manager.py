@@ -92,6 +92,25 @@ class ManagerTests(unittest.TestCase):
         self.assertTrue(self.release(token)['released'])
         self.assertFalse(self.release(token)['released'])
 
+    def test_recent_release_includes_task_platform_and_total_occupancy(self):
+        project = self.state/'mobile-project'
+        m = self.manager()
+        try:
+            m.enable(session='task-activity',project=str(project))
+            lease = m.acquire('ios',session='task-activity',project=str(project),
+                              owner_pid=os.getpid(),timeout=0,mode='traditional')
+            time.sleep(.02)
+            m.release(lease['token'])
+            released = next(e for e in m.status()['events'] if e['event']=='released')
+        finally:
+            m.close()
+        self.assertEqual(released['session'],'task-activity')
+        self.assertEqual(released['project'],str(project.resolve()))
+        self.assertEqual(released['pool'],'ios')
+        self.assertEqual(released['resource'],'i1')
+        self.assertGreaterEqual(released['duration_seconds'],.02)
+        self.assertLessEqual(released['started_at'],released['time'])
+
     def test_capacity_and_timeout(self):
         lease = self.acquire()
         other = self.acquire('android')

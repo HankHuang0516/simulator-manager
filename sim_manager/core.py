@@ -220,7 +220,8 @@ class Manager:
           enabled_at REAL NOT NULL,last_seen REAL NOT NULL,boot TEXT NOT NULL,
           owner_pid INTEGER,owner_start TEXT);
         CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT,
-          time REAL NOT NULL,event TEXT NOT NULL,resource TEXT,session TEXT,detail TEXT);
+          time REAL NOT NULL,event TEXT NOT NULL,resource TEXT,session TEXT,detail TEXT,
+          project TEXT,pool TEXT,started_at REAL,duration_seconds REAL);
         CREATE TABLE IF NOT EXISTS compliance_findings(
           fingerprint TEXT PRIMARY KEY,session TEXT NOT NULL,project TEXT NOT NULL,
           platform TEXT NOT NULL,kind TEXT NOT NULL,pid INTEGER,
@@ -236,6 +237,10 @@ class Manager:
             for name, definition in [('requested_mode',"TEXT NOT NULL DEFAULT 'auto'"),('foreground','INTEGER NOT NULL DEFAULT 0'),('budget','REAL NOT NULL DEFAULT 600')]:
                 if name not in columns:
                     self.db.execute('ALTER TABLE queue ADD COLUMN '+name+' '+definition)
+            columns = {r['name'] for r in self.db.execute('PRAGMA table_info(events)')}
+            for name, definition in [('project','TEXT'),('pool','TEXT'),('started_at','REAL'),('duration_seconds','REAL')]:
+                if name not in columns:
+                    self.db.execute('ALTER TABLE events ADD COLUMN '+name+' '+definition)
             self.db.execute('''CREATE TABLE IF NOT EXISTS environments(
                 resource TEXT PRIMARY KEY, session TEXT NOT NULL, project TEXT NOT NULL,pool TEXT NOT NULL,
                 spec TEXT NOT NULL,phase TEXT NOT NULL,creator_pid INTEGER,creator_start TEXT,boot TEXT,
@@ -271,9 +276,11 @@ class Manager:
     def close(self):
         self.db.close()
 
-    def event(self, kind, resource=None, session=None, detail=None):
-        self.db.execute('INSERT INTO events(time,event,resource,session,detail) VALUES(?,?,?,?,?)',
-                        (time.time(), kind, resource, session, detail))
+    def event(self, kind, resource=None, session=None, detail=None, project=None, pool=None,
+              started_at=None, duration_seconds=None):
+        self.db.execute('''INSERT INTO events(time,event,resource,session,detail,project,pool,started_at,duration_seconds)
+                           VALUES(?,?,?,?,?,?,?,?,?)''',
+                        (time.time(),kind,resource,session,detail,project,pool,started_at,duration_seconds))
         self.db.execute('DELETE FROM events WHERE seq < (SELECT COALESCE(MAX(seq),0)-1000 FROM events)')
 
     def owner_alive(self, r):
@@ -371,7 +378,7 @@ class Manager:
             self.db.execute('INSERT INTO queue(request,pool,session,project,owner_pid,owner_start,boot,waiter_pid,waiter_start,deadline,ttl,created,requested_mode,foreground,budget) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                             (request,pool,session,project,pid,start,self.machine_boot,os.getpid(),waiter,time.time()+(60 if timeout==0 else timeout),ttl,time.time(),mode,int(foreground),budget))
             self.db.execute('UPDATE sessions SET last_seen=? WHERE session=?',(time.time(),session))
-            self.event('queued', session=session, detail=pool)
+            self.event('queued',session=session,detail=pool,project=project,pool=pool)
         try:
             first = True
             while True:
@@ -399,7 +406,7 @@ class Manager:
                         self.db.execute('INSERT INTO leases(resource,token,pool,session,project,owner_pid,owner_start,boot,expires,created,spec,mode,hard_expires,foreground) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                                         (r['id'],token,pool,session,project,pid,start,self.machine_boot,now+min(ttl,budget),now,json.dumps(r),actual_mode,now+budget,int(foreground)))
                         self.db.execute('DELETE FROM queue WHERE request=?',(request,))
-                        self.event('acquired',r['id'],session,actual_mode)
+                        self.event('acquired',r['id'],session,actual_mode,project,pool,now)
                         granted = (token,r,create)
                 if granted:
                     token,r,create = granted
@@ -473,9 +480,11 @@ class Manager:
                 return {'released': False, 'reason': 'unknown-or-already-released'}
             if self.activity_alive(r):
                 raise OwnershipError('Work is still active; finish/cancel your work before release')
+            finished = time.time()
             self.db.execute('DELETE FROM leases WHERE token=?', (token,))
-            self.db.execute('UPDATE environments SET last_used=? WHERE resource=?',(time.time(),r['resource']))
-            self.event('released', r['resource'], r['session'])
+            self.db.execute('UPDATE environments SET last_used=? WHERE resource=?',(finished,r['resource']))
+            self.event('released',r['resource'],r['session'],project=r['project'],pool=r['pool'],
+                       started_at=r['created'],duration_seconds=max(0,finished-r['created']))
             return {'released': True, 'resource_id': r['resource']}
 
     def begin_activity(self, token, operation, pid=None, group=None):
@@ -526,9 +535,42 @@ class Manager:
             now = time.time()
             self.db.execute('INSERT INTO sessions VALUES(?,?,?,?,?,?,?) ON CONFLICT(session) DO UPDATE SET project=excluded.project,last_seen=excluded.last_seen,boot=excluded.boot,owner_pid=excluded.owner_pid,owner_start=excluded.owner_start',
                             (session,project,now,now,self.machine_boot,owner_pid,start))
-            self.event('session-enabled',session=session)
+            self.event('session-enabled',session=session,project=project)
         return {'shared_mode':True,'session':session,'project':project,'state_dir':str(self.state_dir),
                 'mode':self.config['mode'],'coordination':'cooperative','next':'Use sim-manager run with this session label for every runtime/UI test'}
+
+    def recent_events(self, limit=30):
+        """Return display-ready activity, including task identity and occupancy duration."""
+        history = [dict(r) for r in self.db.execute('SELECT * FROM events ORDER BY seq')]
+        projects = {r['session']:r['project'] for r in self.db.execute('SELECT session,project FROM sessions')}
+        environments = {r['resource']:dict(r) for r in self.db.execute('SELECT resource,project,pool FROM environments')}
+        last_pool = {}
+        active = {}
+        now = time.time()
+        for row in history:
+            session = row.get('session')
+            resource = row.get('resource')
+            if row['event']=='queued' and session and row.get('detail') in self.config['pools']:
+                last_pool[session] = row['detail']
+            environment = environments.get(resource,{})
+            row['project'] = row.get('project') or projects.get(session) or environment.get('project')
+            row['pool'] = row.get('pool') or environment.get('pool') or last_pool.get(session)
+            key = (resource,session)
+            if row['event']=='acquired' and all(key):
+                row['started_at'] = row.get('started_at') or row['time']
+                active[key] = row
+            elif row['event'] in ('released','stale-reaped') and all(key):
+                acquired = active.pop(key,None)
+                start = row.get('started_at') or (acquired or {}).get('started_at')
+                if start is not None:
+                    row['started_at'] = start
+                    row['duration_seconds'] = row.get('duration_seconds') if row.get('duration_seconds') is not None else max(0,row['time']-start)
+                if acquired:
+                    acquired['project'] = acquired.get('project') or row.get('project')
+                    acquired['pool'] = acquired.get('pool') or row.get('pool')
+        for row in active.values():
+            row['duration_seconds'] = max(0,now-row['started_at'])
+        return list(reversed(history[-limit:]))
 
     def status(self):
         from . import monitor, compliance
@@ -545,7 +587,7 @@ class Manager:
                     'leases':leases, 'queue':queue, 'reaped':reaped,
                     'sessions':[dict(r) for r in self.db.execute('SELECT * FROM sessions ORDER BY last_seen DESC')],
                     'compliance':compliance.recent(self),
-                    'events':[dict(r) for r in self.db.execute('SELECT * FROM events ORDER BY seq DESC LIMIT 30')]}
+                    'events':self.recent_events()}
 
     def cleanup(self):
         from .watchdog import tick

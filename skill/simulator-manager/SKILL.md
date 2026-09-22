@@ -78,7 +78,7 @@ On queue timeout, report the exact unverified runtime checks and retry through t
 
 ## Dashboard
 
-When asked to view scheduling, run the installed CLI `sim-manager ui`. On macOS 13+ it lazily builds and opens a native floating SwiftUI panel using Xcode command line tools. While running, the app remains visible in the Dock and in the menu bar; either entry can reopen a hidden panel. It uses the same shared state, updates every two seconds, and has no resource control buttons. The language control defaults to the device's preferred language and can persistently select Automatic, English, or Traditional Chinese. Viewing status does not require acquiring a simulator. Registered sessions are adoption records, not proof of live work. The manager watcher operates independently of the panel.
+When asked to view scheduling, run the installed CLI `sim-manager ui`. On macOS 13+ it lazily builds and opens a native floating SwiftUI panel using Xcode command line tools. While running, the app remains visible with its custom routing icon in the Dock and in the menu bar; either entry can reopen a hidden panel. It uses the same shared state, updates every two seconds, and has no resource control buttons. Recent Activity names the task/project and platform, and shows live elapsed time or completed total occupancy. The language control defaults to the device's preferred language and can persistently select Automatic, English, or Traditional Chinese. Viewing status does not require acquiring a simulator. Registered sessions are adoption records, not proof of live work. The manager watcher operates independently of the panel.
 
 ## Android target recovery
 

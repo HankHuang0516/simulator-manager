@@ -1,6 +1,6 @@
 # Validation report
 
-Validated through September 22, 2026. Current version 3.2.3; earlier sections preserve historical validation evidence.
+Validated through September 22, 2026. Current version 3.3.0; earlier sections preserve historical validation evidence.
 
 ## Local environment
 
@@ -63,6 +63,14 @@ The native dashboard is a regular macOS application while running: its bundle no
 Version 3.2.2 closes a duplicate-dashboard handover gap exposed during live Dock verification. Before copying the build bundle into Applications, installation now gracefully stops only a process executing that exact build-bundle path, then applies the existing exact-path handover to the Applications bundle. A regression copies a temporary managed app and verifies the build path is handed over first. This prevents a prior internal build and the Applications copy from sharing one bundle identifier at the same time; no task, watcher, simulator, emulator, ADB process or lease is targeted.
 
 Version 3.2.3 handles the transient LaunchServices lag observed immediately after that two-bundle handover. Opening the installed app now retries at most three times with a 500 ms pause; it still returns a real error if all attempts fail. A regression verifies one failed open followed by success, including the single bounded pause. Live recovery confirmed the same installed Applications bundle opens normally after the handover.
+
+## Dock identity and detailed activity (3.3.0)
+
+The app now embeds a dedicated 1024 px RGBA routing icon and a complete macOS ICNS family. Production review covered the master on light and dark backgrounds, nearest-neighbor inspection at 16, 32 and 64 px, transparent corner pixels, safe alpha bounds, and an ICNS round trip containing every required representation. The first generated concept was rejected because its phone-like details blurred at small sizes and stray pixels escaped the squircle; the final asset uses three abstract simulator nodes, a stronger central routing portal and clean transparent margins.
+
+Recent Activity now persists and displays task/session identity, project, platform, resource, start/end times and total occupancy for completed allocations; active allocations show a live elapsed duration. Migration adds nullable event fields without discarding existing history, and display-time backfill uses retained session/environment metadata for older rows. A scheduler regression verifies the completed release record. The dashboard bundle regression also verifies that the custom ICNS is copied and declared in `Info.plist`.
+
+All 106 tests pass locally. Both Skill copies validate, Python/shell/JavaScript static checks and `git diff --check` pass, and the native SwiftUI bundle compiles for macOS 13 with the icon resource present. The localized website was visually inspected in both Traditional Chinese and English with the new favicon, navigation mark and hero icon. No simulator or emulator was booted, stopped or reassigned for this dashboard and activity-history change.
 
 ## Native dashboard
 

@@ -17,6 +17,9 @@ class DashboardHandoverTests(unittest.TestCase):
             source = root/'dashboard/SimulatorManager.swift'
             source.parent.mkdir(parents=True)
             source.write_text((Path(__file__).parents[1]/'dashboard/SimulatorManager.swift').read_text())
+            icon = root/'assets/SimulatorManager.icns'
+            icon.parent.mkdir(parents=True)
+            icon.write_bytes((Path(__file__).parents[1]/'assets/SimulatorManager.icns').read_bytes())
 
             def compile_app(arguments, **_kwargs):
                 Path(arguments[arguments.index('-o')+1]).write_bytes(b'app')
@@ -26,7 +29,10 @@ class DashboardHandoverTests(unittest.TestCase):
                  patch.object(dashboard.subprocess,'run',side_effect=compile_app):
                 app = dashboard.build(root=root,state_dir=root/'state')
             with (app/'Contents/Info.plist').open('rb') as file:
-                self.assertFalse(plistlib.load(file)['LSUIElement'])
+                info = plistlib.load(file)
+            self.assertFalse(info['LSUIElement'])
+            self.assertEqual(info['CFBundleIconFile'],'SimulatorManager.icns')
+            self.assertEqual((app/'Contents/Resources/SimulatorManager.icns').read_bytes(),icon.read_bytes())
             self.assertIn('setActivationPolicy(.regular)',source.read_text())
 
     def test_process_inventory_matches_only_exact_managed_executable_path(self):

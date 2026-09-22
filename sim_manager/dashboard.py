@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import plistlib
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -19,9 +20,10 @@ def build(root=None, state_dir=None):
         raise ValueError('The floating dashboard requires macOS 13+ and Xcode command line tools.')
     root = Path(root or Path(__file__).resolve().parent.parent).resolve()
     source = root/'dashboard/SimulatorManager.swift'
+    icon = root/'assets/SimulatorManager.icns'
     app = root/'Simulator Manager.app'
     state = Path(state_dir or os.environ.get('SIM_MANAGER_STATE_DIR',str(Path.home()/'Library/Application Support/simulator-manager'))).expanduser().resolve()
-    digest = hashlib.sha256(source.read_bytes()+__version__.encode()+str(root/'bin/sim-manager').encode()+str(state).encode()).hexdigest()
+    digest = hashlib.sha256(source.read_bytes()+icon.read_bytes()+__version__.encode()+str(root/'bin/sim-manager').encode()+str(state).encode()).hexdigest()
     with (root/'.dashboard-build.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
         exe = app/'Contents/MacOS/SimulatorManager'
@@ -40,10 +42,12 @@ def build(root=None, state_dir=None):
             raise ValueError('Dashboard build failed. Install Xcode command line tools and retry: '+str(e)) from e
         finally:
             temporary.unlink(missing_ok=True)
+        shutil.copy2(icon,app/'Contents/Resources/SimulatorManager.icns')
         info = {'CFBundleName':'Simulator Manager','CFBundleDisplayName':'Simulator Manager',
                 'CFBundleIdentifier':'com.hankhuang.simulator-manager.dashboard',
                 'CFBundleExecutable':'SimulatorManager','CFBundlePackageType':'APPL',
                 'CFBundleShortVersionString':__version__,'CFBundleVersion':'2',
+                'CFBundleIconFile':'SimulatorManager.icns',
                 'LSMinimumSystemVersion':'13.0','LSUIElement':False,
                 'NSHighResolutionCapable':True,
                 'SimulatorManagerCLI':str(root/'bin/sim-manager'),
