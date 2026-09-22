@@ -99,8 +99,11 @@ def stop_existing_dashboard(app):
 
 
 def install_user_app(app, target=None):
+    app = Path(app).expanduser().resolve()
     target = Path(target or Path.home()/'Applications/Simulator Manager.app').expanduser().resolve()
     target.parent.mkdir(parents=True,exist_ok=True)
+    if app != target:
+        stop_existing_dashboard(app)
     if target.exists():
         plist = target/'Contents/Info.plist'
         try:

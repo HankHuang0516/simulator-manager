@@ -1,6 +1,7 @@
 import signal
 import subprocess
 import plistlib
+import shutil
 from pathlib import Path
 import tempfile
 import unittest
@@ -55,6 +56,27 @@ class DashboardHandoverTests(unittest.TestCase):
         self.assertEqual([call for call in calls if call[1] == signal.SIGTERM],
                          [(201,signal.SIGTERM),(202,signal.SIGTERM)])
         self.assertFalse(any(sig == signal.SIGKILL for _pid,sig in calls))
+
+    def test_install_stops_exact_build_app_before_copying_dock_app(self):
+        with tempfile.TemporaryDirectory(prefix='dashboard install ') as temporary:
+            root = Path(temporary)
+            source = root/'build/Simulator Manager.app'
+            target = root/'Applications/Simulator Manager.app'
+            (source/'Contents').mkdir(parents=True)
+            (source/'Contents/marker').write_text('managed')
+
+            def copy_app(arguments, **_kwargs):
+                if arguments[0] == '/usr/bin/ditto':
+                    shutil.copytree(arguments[1],arguments[2])
+                elif arguments[0] == '/bin/rm':
+                    shutil.rmtree(arguments[-1],ignore_errors=True)
+                return subprocess.CompletedProcess(arguments,0)
+
+            with patch.object(dashboard,'stop_existing_dashboard') as stop, \
+                 patch.object(dashboard.subprocess,'run',side_effect=copy_app):
+                self.assertEqual(dashboard.install_user_app(source,target),target.resolve())
+            stop.assert_called_once_with(source.resolve())
+            self.assertEqual((target/'Contents/marker').read_text(),'managed')
 
 
 if __name__ == '__main__':
