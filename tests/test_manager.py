@@ -278,6 +278,18 @@ class ManagerTests(unittest.TestCase):
         self.assertEqual(child.wait(timeout=3),125)
         self.assertFalse(marker.exists())
 
+    def test_run_rejects_runtime_shutdown_before_acquiring(self):
+        ios = self.cli('run','ios','--session','task','--project','/tmp/project','--json',
+                       '--','sh','-c','xcrun simctl shutdown "$SIM_MANAGER_UDID"')
+        self.assertNotEqual(ios.returncode,0)
+        self.assertIn('forbidden `simctl shutdown`',json.loads(ios.stdout)['error'])
+        android = self.cli('run','android','--session','task','--project','/tmp/project','--json',
+                           '--','adb','-s','emulator-5554','emu','kill')
+        self.assertNotEqual(android.returncode,0)
+        self.assertIn('forbidden `adb emu kill`',json.loads(android.stdout)['error'])
+        self.assertEqual(self.status()['leases'],[])
+        self.assertEqual(self.status()['queue'],[])
+
     def test_busy_release_rejected(self):
         lease = self.acquire()
         m = self.manager()

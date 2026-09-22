@@ -12,7 +12,7 @@ A local Codex Tool, Skill and macOS shared resource scheduler. The Tool exposes 
 curl -fsSL https://raw.githubusercontent.com/HankHuang0516/simulator-manager/main/install-tool.sh | sh
 ```
 
-The installer now finishes visibly: it creates **`~/Applications/Simulator Manager.app`**, opens the floating dashboard, presents a five-step Quick Start, and shows the running app with its custom routing icon in the Dock. The Dock icon or menu-bar stack icon reopens the panel after it is hidden. If native compilation is unavailable, the CLI and Codex Tool remain installed and the installer prints the exact repair command.
+The installer now finishes visibly: it creates **`~/Applications/Simulator Manager.app`**, opens the floating dashboard, presents a five-step Quick Start, and shows the running app with its custom routing icon in the Dock. A cross-process singleton lock guarantees one main dashboard UI and one menu-bar item per macOS account; repeated CLI, Dock, Finder, installer or direct-binary launches reveal the existing panel. The Dock icon or menu-bar stack icon reopens the panel after it is hidden. If native compilation is unavailable, the CLI and Codex Tool remain installed and the installer prints the exact repair command.
 
 This installs the CLI and Skill in the user account, adds the public `hank-tools` marketplace, and installs the `simulator-manager` Codex Plugin. Start a new Codex task, then say:
 
@@ -60,7 +60,7 @@ This is device-data isolation similar to dedicated development environments. It 
 
 Private identity does not mean permanent occupancy. Keep the returned session label stable, including across tool calls. A new label or different project path creates a different environment. At `max_environments`, new owners wait/timeout; existing environments are never silently erased or reassigned. Failed partial creations remain visible and quarantined for operator inspection.
 
-Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 3.3.1.
+Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 3.4.0.
 
 ## Time limits and fair yielding
 
@@ -140,7 +140,7 @@ Version 2.0.3 retries read-only ADB inventory, AVD-name and boot-property querie
 
 ## Warm environment reuse
 
-Version 2.0.2 prioritizes a queued request for its own running private environment before idle retirement. A queue entry or a degraded stage alone no longer causes shutdown. Maintenance reclaims an unleased private VM when running occupancy exceeds admission capacity, a FIFO-head cold environment needs a slot, critical host telemetry requires relief, or the configured idle timeout expires. Pending matching warm requests remain protected. Each maintenance tick retires at most one provenance-verified VM and retains its installed apps/userdata. Lease release and VM shutdown remain separate: fair yielding gives up use rights without necessarily restarting the device. Sessions must release without running `simctl shutdown`, `adb emu kill`, emulator-close actions, or shutdown cleanup traps; the manager alone decides when an unleased device is reused warm or safely retired.
+Version 2.0.2 prioritizes a queued request for its own running private environment before idle retirement. A queue entry or a degraded stage alone no longer causes shutdown. Maintenance reclaims an unleased private VM when running occupancy exceeds admission capacity, a FIFO-head cold environment needs a slot, critical host telemetry requires relief, or the configured idle timeout expires. Pending matching warm requests remain protected. Each maintenance tick retires at most one provenance-verified VM and retains its installed apps/userdata. Lease release and VM shutdown remain separate: fair yielding gives up use rights without restarting the device. Every session must release on success, failure, timeout and interruption without running `simctl shutdown`, `adb emu kill`, emulator-close actions, or shutdown cleanup traps. Supervised runs reject explicit shutdown commands before admission and compliance coaching flags detected attempts even with a valid lease. The manager alone decides when an unleased device is reused warm or safely retired.
 
 ## CLI examples
 
@@ -244,7 +244,7 @@ Repair requires the assigned private environment, no running VM or tracked work,
 
 ## Floating dashboard
 
-On macOS 13 or later, the one-command installer opens the dashboard automatically, adds **Simulator Manager** to `~/Applications`, and keeps a visible Dock icon while the dashboard is running. The menu-bar entry remains available. You can also tell Codex **“Open the simulator-manager dashboard.”** The agent runs:
+On macOS 13 or later, the one-command installer opens the dashboard automatically, adds **Simulator Manager** to `~/Applications`, and keeps a visible Dock icon while the dashboard is running. The menu-bar entry remains available. A nonblocking user-level lock ensures only one main dashboard process, panel, Dock identity and menu-bar item can exist at once. A second launch activates the existing dashboard and can open its onboarding guide. You can also tell Codex **“Open the simulator-manager dashboard.”** The agent runs:
 
 ```sh
 sim-manager ui

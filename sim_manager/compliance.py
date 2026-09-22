@@ -33,6 +33,23 @@ GUIDANCE = {
     ),
 }
 
+SHUTDOWN_GUIDANCE = {
+    'ios': (
+        'This task attempted to power off an iOS simulator. Test completion means '
+        'release only: never run simctl shutdown or add it to a cleanup trap, even '
+        'while holding a valid lease. Shutting down defeats warm reuse and delays '
+        'every waiting task. Leave the assigned simulator running; Simulator Manager '
+        'alone may retire a provenance-verified unleased device when policy requires it.'
+    ),
+    'android': (
+        'This task attempted to power off an Android emulator. Test completion means '
+        'release only: never close the emulator, run adb emu kill, or add shutdown to '
+        'a cleanup trap, even while holding a valid lease. Shutting down defeats warm '
+        'reuse and delays every waiting task. Simulator Manager alone may retire a '
+        'provenance-verified unleased device when policy requires it.'
+    ),
+}
+
 
 def _processes():
     """Return pid -> (ppid, command). Commands are never persisted verbatim."""
@@ -69,6 +86,10 @@ def _classify(command):
     # are recorded. Ignore the manager's own inspection and provider processes.
     if 'sim-manager' in lower or '-m sim_manager' in lower:
         return None
+    if 'simctl' in lower and re.search(r'\bshutdown\b', lower):
+        return 'ios', 'unsafe-shutdown'
+    if re.search(r'(^|[/\s])adb([\s]|$)', lower) and re.search(r'\bemu\s+kill\b', lower):
+        return 'android', 'unsafe-shutdown'
     if re.search(r'(^|[/\s])xcodebuild([\s]|$)', lower) and (
             'destination' in lower and ('simulator' in lower or 'id=' in lower)):
         return 'ios', 'xcodebuild-simulator'
@@ -107,7 +128,8 @@ def audit(manager, session=None):
             if not classified:
                 continue
             platform, kind = classified
-            if (row['session'], platform) in leases:
+            # A lease authorizes targeted runtime work, never device power-off.
+            if kind != 'unsafe-shutdown' and (row['session'], platform) in leases:
                 continue
             key = _fingerprint(row['session'], platform, kind)
             detected[key] = (row, platform, kind, pid)
@@ -120,7 +142,8 @@ def audit(manager, session=None):
                 VALUES(?,?,?,?,?,?,?,?,1,?)
                 ON CONFLICT(fingerprint) DO UPDATE SET pid=excluded.pid,last_seen=excluded.last_seen,
                     active=1,guidance=excluded.guidance''',
-                (fingerprint, row['session'], row['project'], platform, kind, pid, now, now, GUIDANCE[platform]))
+                (fingerprint, row['session'], row['project'], platform, kind, pid, now, now,
+                 SHUTDOWN_GUIDANCE[platform] if kind == 'unsafe-shutdown' else GUIDANCE[platform]))
             if not existing or not existing['active']:
                 manager.event('compliance-guidance', session=row['session'], detail=kind)
         active = manager.db.execute('SELECT fingerprint FROM compliance_findings WHERE active=1').fetchall()

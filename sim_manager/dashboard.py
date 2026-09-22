@@ -150,8 +150,6 @@ def launch(state_dir=None, build_only=False, root=None, install_app=False, onboa
     launch_app = installed or app
     if not build_only:
         try:
-            if onboarding and not installed:
-                stop_existing_dashboard(launch_app)
             args = ['open']
             args.extend([str(launch_app),'--args','--cli',str(root/'bin/sim-manager'),
                          '--state-dir',str(state)])

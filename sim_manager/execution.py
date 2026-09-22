@@ -1,10 +1,36 @@
 """Gated process groups: register ownership before any user command can execute."""
 import os
+import re
 import signal
 import subprocess
 import sys
 import time
 from .core import boot_id, group_alive, OwnershipError
+
+
+_FORBIDDEN_RUNTIME_SHUTDOWN = (
+    (re.compile(r'\bsimctl\b[^\n;&|]*\bshutdown\b', re.IGNORECASE),
+     'simctl shutdown'),
+    (re.compile(r'\badb\b[^\n;&|]*\bemu\s+kill\b', re.IGNORECASE),
+     'adb emu kill'),
+)
+
+
+def validate_runtime_command(command):
+    """Reject explicit device power-off actions before a lease is acquired.
+
+    Release and power state are deliberately separate.  The manager may retire
+    a provenance-verified unleased private runtime during maintenance; a task
+    command must only finish its validation and return its use rights.
+    """
+    rendered = ' '.join(str(value) for value in command)
+    for pattern, action in _FORBIDDEN_RUNTIME_SHUTDOWN:
+        if pattern.search(rendered):
+            raise ValueError(
+                f'Runtime command contains forbidden `{action}`. Finish the test and '
+                'release the lease; Simulator Manager keeps the device warm and alone '
+                'decides when an unleased runtime may be retired.'
+            )
 
 
 def spawn_gated(command, env=None, stdout=None, stderr=None):
@@ -50,6 +76,7 @@ def cancel_group(child, grace=3):
 
 
 def execute(manager, token, command, env=None, timeout=None, operation='work', stdout=None, stderr=None):
+    validate_runtime_command(command)
     budget = manager.budget(token)
     if budget['remaining_seconds']<=0:
         return 75 if budget['reason']=='requeue-required' else 124

@@ -54,6 +54,17 @@ class MCPServerTests(unittest.TestCase):
         with self.assertRaises(MCP.ToolError):
             MCP.invoke_tool("simulator_manager_run", {**base, "command": ["true"], "max_requeues": 1})
 
+    def test_run_rejects_device_shutdown_actions(self):
+        base = {"platform":"ios","session":"s","project":"/tmp/p"}
+        with self.assertRaisesRegex(MCP.ToolError,"simctl shutdown"):
+            MCP.invoke_tool("simulator_manager_run", {
+                **base,"command":["sh","-c","xcrun simctl shutdown $SIM_MANAGER_UDID"],
+            })
+        with self.assertRaisesRegex(MCP.ToolError,"adb emu kill"):
+            MCP.invoke_tool("simulator_manager_run", {
+                **base,"platform":"android","command":["adb","-s","emulator-5554","emu","kill"],
+            })
+
     def test_custom_state_argument_stays_outside_child_command(self):
         completed = subprocess.CompletedProcess([], 0, '{"released":true}\n', "")
         with mock.patch.object(MCP, "cli_path", return_value="/tmp/sim-manager"), \

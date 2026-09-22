@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -35,7 +36,7 @@ TOOLS = [
     },
     {
         "name": "simulator_manager_run",
-        "description": "Acquire through FIFO admission, optionally boot the assigned device, run one argv command under the total occupancy deadline, and always release. Use only after build/unit checks show runtime or UI validation is needed.",
+        "description": "Acquire through FIFO admission, optionally boot the assigned device, run one argv command under the total occupancy deadline, and always release without powering off the simulator/emulator. Explicit shutdown actions are rejected. Use only after build/unit checks show runtime or UI validation is needed.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -62,7 +63,7 @@ TOOLS = [
     },
     {
         "name": "simulator_manager_ui",
-        "description": "Open the native macOS floating dashboard for queue, lease, environment, and pressure monitoring.",
+        "description": "Open or focus the single native macOS floating dashboard for queue, lease, environment, and pressure monitoring.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
     {
@@ -116,6 +117,20 @@ def _text(value: Any, name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ToolError(f"{name} must be a non-empty string")
     return value
+
+
+def _reject_runtime_shutdown(command: list[str]) -> None:
+    rendered = " ".join(command)
+    forbidden = (
+        (r"\bsimctl\b[^\n;&|]*\bshutdown\b", "simctl shutdown"),
+        (r"\badb\b[^\n;&|]*\bemu\s+kill\b", "adb emu kill"),
+    )
+    for pattern, action in forbidden:
+        if re.search(pattern, rendered, re.IGNORECASE):
+            raise ToolError(
+                f"command contains forbidden `{action}`; finish testing and release "
+                "use rights while leaving the assigned runtime warm"
+            )
 
 
 def run_cli(args: list[str], timeout: float = 30) -> dict[str, Any]:
@@ -174,6 +189,7 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
         command = a.get("command")
         if not isinstance(command, list) or not command or any(not isinstance(v, str) or not v for v in command):
             raise ToolError("command must be a non-empty array of non-empty argv strings")
+        _reject_runtime_shutdown(command)
         queue_timeout = _number(a.get("queue_timeout_seconds", 300), "queue_timeout_seconds", 0, 900)
         command_timeout = _number(a.get("command_timeout_seconds", 600), "command_timeout_seconds", 0.001, 600)
         budget = _number(a.get("budget_seconds", 600), "budget_seconds", 0.001, 600)
@@ -229,7 +245,7 @@ def handle(message: dict[str, Any]) -> dict[str, Any] | None:
         return None
     if method == "initialize":
         result = {"protocolVersion": PROTOCOL_VERSION, "capabilities": {"tools": {"listChanged": False}},
-                  "serverInfo": {"name": "simulator-manager", "version": "3.3.1"}}
+                  "serverInfo": {"name": "simulator-manager", "version": "3.4.0"}}
     elif method == "ping":
         result = {}
     elif method == "tools/list":

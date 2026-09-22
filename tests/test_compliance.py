@@ -57,6 +57,24 @@ class ComplianceTests(unittest.TestCase):
         self.assertEqual(result['active_findings'], 0)
         self.manager.release(lease['token'])
 
+    def test_valid_lease_never_authorizes_runtime_shutdown(self):
+        lease = self.manager.acquire('ios', 'task-1', '/tmp/project', os.getpid(), timeout=0)
+        processes = {
+            os.getpid():(1,'codex task'),
+            43213:(os.getpid(),'xcrun simctl shutdown 11111111-1111-1111-1111-111111111111'),
+        }
+        with patch.object(compliance, '_processes', return_value=processes):
+            result = compliance.audit(self.manager, 'task-1')
+        self.assertEqual(result['active_findings'], 1)
+        finding = result['findings'][0]
+        self.assertEqual(finding['kind'], 'unsafe-shutdown')
+        self.assertIn('release only', finding['guidance'])
+        self.manager.release(lease['token'])
+
+    def test_android_emu_kill_is_shutdown_not_generic_adb(self):
+        classified = compliance._classify('adb -s emulator-5554 emu kill')
+        self.assertEqual(classified, ('android', 'unsafe-shutdown'))
+
     def test_disappeared_process_resolves_finding_without_stopping_anything(self):
         first = {os.getpid():(1,'codex task'), 43212:(os.getpid(),'adb -s emulator-5554 shell getprop')}
         with patch.object(compliance, '_processes', return_value=first):

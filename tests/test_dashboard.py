@@ -34,6 +34,10 @@ class DashboardHandoverTests(unittest.TestCase):
             self.assertEqual(info['CFBundleIconFile'],'SimulatorManager.icns')
             self.assertEqual((app/'Contents/Resources/SimulatorManager.icns').read_bytes(),icon.read_bytes())
             self.assertIn('setActivationPolicy(.regular)',source.read_text())
+            self.assertIn('Darwin.fcntl(fd,F_SETLK,&request)',source.read_text())
+            self.assertIn('dashboard-ui.lock',source.read_text())
+            self.assertIn('revealExistingDashboard',source.read_text())
+            self.assertIn('DistributedNotificationCenter.default()',source.read_text())
 
     def test_process_inventory_matches_only_exact_managed_executable_path(self):
         with tempfile.TemporaryDirectory(prefix='dashboard app ') as temporary:
@@ -92,6 +96,16 @@ class DashboardHandoverTests(unittest.TestCase):
             dashboard.open_application(['open','Simulator Manager.app'])
         self.assertEqual(run.call_count,2)
         sleep.assert_called_once_with(.5)
+
+    def test_repeated_onboarding_launch_relies_on_singleton_focus(self):
+        app = Path('/tmp/Simulator Manager.app')
+        with patch.object(dashboard,'build',return_value=app), \
+             patch.object(dashboard,'stop_existing_dashboard') as stop, \
+             patch.object(dashboard,'open_application') as opening:
+            result = dashboard.launch(state_dir='/tmp/state',onboarding=True,root='/tmp/root')
+        stop.assert_not_called()
+        self.assertTrue(result['opened'])
+        self.assertIn('--onboarding',opening.call_args.args[0])
 
 
 if __name__ == '__main__':

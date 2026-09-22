@@ -4,6 +4,37 @@ import Foundation
 import Combine
 import Darwin
 
+let dashboardShowNotification = Notification.Name("com.hankhuang.simulator-manager.dashboard.show")
+
+final class DashboardSingleton {
+    private let descriptor: Int32
+    private init(descriptor: Int32) { self.descriptor = descriptor }
+    static func acquire() -> DashboardSingleton? {
+        let support = FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask).first!
+        let directory = support.appendingPathComponent("simulator-manager",isDirectory:true)
+        try? FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true,
+                                                 attributes:[.posixPermissions:0o700])
+        let path = directory.appendingPathComponent("dashboard-ui.lock").path
+        let fd = Darwin.open(path,O_CREAT | O_RDWR,S_IRUSR | S_IWUSR)
+        guard fd >= 0 else { return nil }
+        var request = flock(); request.l_type = Int16(F_WRLCK); request.l_whence = Int16(SEEK_SET)
+        guard Darwin.fcntl(fd,F_SETLK,&request) != -1 else { Darwin.close(fd); return nil }
+        return DashboardSingleton(descriptor:fd)
+    }
+    deinit {
+        var request = flock(); request.l_type = Int16(F_UNLCK); request.l_whence = Int16(SEEK_SET)
+        _ = Darwin.fcntl(descriptor,F_SETLK,&request); Darwin.close(descriptor)
+    }
+}
+
+func revealExistingDashboard(showGuide: Bool) {
+    DistributedNotificationCenter.default().post(name:dashboardShowNotification,object:nil,
+                                                   userInfo:["showGuide":showGuide])
+    for application in NSRunningApplication.runningApplications(withBundleIdentifier:"com.hankhuang.simulator-manager.dashboard") {
+        application.activate(options:[.activateIgnoringOtherApps])
+    }
+}
+
 struct Metrics: Decodable { let load_ratio: Double?; let disk_free_gib: Double?; let memory_free_percent: Double? }
 struct Scheduler: Decodable { let stage: Int; let mode: String; let capacity: Int; let creation_allowed: Bool; let metrics: Metrics; let pressure: String }
 struct Lease: Decodable, Identifiable {
@@ -115,14 +146,14 @@ func localizedGuide(_ zh: Bool) -> [GuideCopy] {
     if zh { return [
         GuideCopy(title:"歡迎使用 Simulator Manager",body:"這個小浮框是所有 Codex task 共用的模擬器中轉站。關閉視窗只會隱藏；可從選單列或「應用程式」再次打開。",bullets:["安裝完成後自動啟動","常駐選單列，隨時查看排程","不會清除任何模擬器資料"],symbol:"square.stack.3d.up.fill"),
         GuideCopy(title:"先完成不需要模擬器的檢查",body:"Codex 應先執行編譯、靜態檢查與主機單元測試；只有畫面、導覽、手勢、生命週期或執行期行為才進入分配流程。",bullets:["文件與純邏輯通常不需模擬器","需要 runtime/UI 驗證才提出請求","避免浪費啟動與佔用時間"],symbol:"hammer.fill"),
-        GuideCopy(title:"讓 Tool 取得精確裝置",body:"在 Codex task 說「Use simulator-manager for this project.」。Tool 會排隊、啟動指定裝置、執行測試，並在成功、失敗或逾時後自動釋放。",bullets:["不得直接選擇 booted 裝置","不得使用未指定的 adb target","release 只歸還使用權，不關閉暖機裝置"],symbol:"play.circle.fill"),
-        GuideCopy(title:"公平使用與安全讓位",body:"建立、開機與測試共用同一個 10 分鐘上限；有人等待時，工作必須在安全切點完成並回到隊尾。",bullets:["總佔用上限包含開機","續租次數有限","不得自行 shutdown；由管理器決定暖機重用或退役"],symbol:"person.2.fill"),
+        GuideCopy(title:"讓 Tool 取得精確裝置",body:"在 Codex task 說「Use simulator-manager for this project.」。Tool 會排隊、啟動指定裝置、執行測試，並在成功、失敗、逾時或中斷後自動釋放。",bullets:["不得直接選擇 booted 裝置","不得使用未指定的 adb target","每個 task 都只能 release，必須保留暖機裝置"],symbol:"play.circle.fill"),
+        GuideCopy(title:"公平使用與安全讓位",body:"建立、開機與測試共用同一個 10 分鐘上限；有人等待時，工作必須在安全切點完成並回到隊尾。",bullets:["總佔用上限包含開機","續租次數有限","禁止 simctl shutdown、adb emu kill 或關閉 emulator"],symbol:"person.2.fill"),
         GuideCopy(title:"偏離規則時會主動教學",body:"監督程式只讀取已登記 task 的程序關係。發現直接使用 simctl、adb、emulator 或未租用的模擬器測試時，會標記該 task 並產生修正指引。",bullets:["只記錄動作種類，不保存完整命令","不會終止 task 或裝置","已採用 Tool 的 task 會在下次互動收到專屬指引"],symbol:"graduationcap.fill")
     ] }
     return [
         GuideCopy(title:"Welcome to Simulator Manager",body:"This floating dashboard is the shared control plane between Codex tasks and mobile simulators. Closing the panel only hides it; reopen it from the menu bar or Applications.",bullets:["Opens after installation","Lives in the menu bar","Never erases simulator data"],symbol:"square.stack.3d.up.fill"),
         GuideCopy(title:"Run host checks first",body:"Codex should finish builds, static checks, and host unit tests before requesting a device. Enter the managed lane only for UI or runtime behavior.",bullets:["Docs and pure logic usually need no simulator","Request only for runtime or UI validation","Avoid unnecessary boot and occupancy time"],symbol:"hammer.fill"),
-        GuideCopy(title:"Let the Tool assign one exact device",body:"Tell a Codex task “Use simulator-manager for this project.” The Tool queues, boots, runs, and releases after success, failure, interruption, or timeout.",bullets:["Never target booted implicitly","Never use an unspecified adb target","Release use rights; keep the verified device warm"],symbol:"play.circle.fill"),
+        GuideCopy(title:"Let the Tool assign one exact device",body:"Tell a Codex task “Use simulator-manager for this project.” The Tool queues, boots, runs, and releases after success, failure, interruption, or timeout.",bullets:["Never target booted implicitly","Never use an unspecified adb target","Every task must release and leave the verified device warm"],symbol:"play.circle.fill"),
         GuideCopy(title:"Share fairly and yield safely",body:"Creation, boot, and testing share one 10-minute cap. When someone waits, checkpoint safely and rejoin at the back of the queue.",bullets:["Boot time counts toward occupancy","Renewals are bounded","Never shut down a device; the manager reuses or retires it"],symbol:"person.2.fill"),
         GuideCopy(title:"Coaching appears when a task drifts",body:"The watcher reads process relationships for registered tasks. Direct simctl, adb, emulator, or unleased simulator tests create targeted guidance.",bullets:["Stores the action type, never the full command","Never kills a task or device","Tool-enabled tasks receive their lesson on the next interaction"],symbol:"graduationcap.fill")
     ]
@@ -179,6 +210,12 @@ func eventName(_ value: String, _ zh: Bool) -> String {
 }
 func guidanceText(_ finding: ComplianceFinding, _ zh: Bool) -> String {
     guard zh else { return finding.guidance }
+    if finding.kind == "unsafe-shutdown" {
+        if finding.platform == "ios" {
+            return "此 task 嘗試關閉 iOS Simulator。這會破壞暖機重用並拖慢所有等待中的 task。即使持有有效租約，測試完成也只能 release，禁止 simctl shutdown 或關機 cleanup trap；只有管理器可以依規則退役已釋放的裝置。"
+        }
+        return "此 task 嘗試關閉 Android Emulator。這會破壞暖機重用並拖慢所有等待中的 task。即使持有有效租約，測試完成也只能 release，禁止關閉 emulator、adb emu kill 或關機 cleanup trap；只有管理器可以依規則退役已釋放的裝置。"
+    }
     if finding.platform == "ios" {
         return "此 task 在 Simulator Manager 租約外使用 iOS Simulator。請先完成編譯與主機測試；需要 runtime／UI 驗證時，使用 simulator_manager_run 或 sim-manager run ios，只操作分配的 SIM_MANAGER_UDID。完成後只 release 使用權，不執行 simctl shutdown，讓管理器決定暖機重用或安全退役。"
     }
@@ -335,6 +372,8 @@ struct Dashboard: View {
 @MainActor final class Delegate: NSObject, NSApplicationDelegate {
     var panel: NSPanel!; var item: NSStatusItem!; var languageObserver: AnyCancellable?; let model = Model()
     func applicationDidFinishLaunching(_ notification: Notification) {
+        DistributedNotificationCenter.default().addObserver(self,selector:#selector(showFromSecondaryLaunch(_:)),
+                                                             name:dashboardShowNotification,object:nil)
         panel = NSPanel(contentRect:NSRect(x:0,y:0,width:420,height:690),styleMask:[.borderless,.resizable],backing:.buffered,defer:false)
         panel.title = "Simulator Manager"; panel.isFloatingPanel = true; panel.level = .floating; panel.isMovableByWindowBackground = true
         panel.hidesOnDeactivate = false; panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
@@ -383,18 +422,29 @@ struct Dashboard: View {
         for child in menu.items where child.action != nil { child.target = self }; item.menu = menu
     }
     @objc func show() { panel.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps:true) }
+    @objc func showFromSecondaryLaunch(_ notification: Notification) {
+        if notification.userInfo?["showGuide"] as? Bool == true { model.showGuide = true }
+        show()
+    }
     @objc func guide() { model.showGuide = true; show() }
     @objc func useAutomaticLanguage() { model.language = .automatic }
     @objc func useEnglish() { model.language = .english }
     @objc func useChinese() { model.language = .chinese }
     @objc func quit() { NSApp.terminate(nil) }
+    func applicationWillTerminate(_ notification: Notification) {
+        DistributedNotificationCenter.default().removeObserver(self,name:dashboardShowNotification,object:nil)
+    }
     func applicationShouldHandleReopen(_ sender:NSApplication,hasVisibleWindows:Bool)->Bool { show(); return true }
 }
 @main struct SimulatorManagerApp {
     @MainActor static func main() {
+        guard let singleton = DashboardSingleton.acquire() else {
+            revealExistingDashboard(showGuide:CommandLine.arguments.contains("--onboarding"))
+            return
+        }
         let app = NSApplication.shared
         let delegate = Delegate()
         app.delegate = delegate; app.setActivationPolicy(.regular)
-        withExtendedLifetime(delegate) { app.run() }
+        withExtendedLifetime(singleton) { withExtendedLifetime(delegate) { app.run() } }
     }
 }

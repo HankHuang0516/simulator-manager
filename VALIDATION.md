@@ -1,6 +1,6 @@
 # Validation report
 
-Validated through September 22, 2026. Current version 3.3.1; earlier sections preserve historical validation evidence.
+Validated through September 22, 2026. Current version 3.4.0; earlier sections preserve historical validation evidence.
 
 ## Local environment
 
@@ -73,6 +73,14 @@ Recent Activity now persists and displays task/session identity, project, platfo
 All 106 tests pass locally. Both Skill copies validate, Python/shell/JavaScript static checks and `git diff --check` pass, and the native SwiftUI bundle compiles for macOS 13 with the icon resource present. The localized website was visually inspected in both Traditional Chinese and English with the new favicon, navigation mark and hero icon. No simulator or emulator was booted, stopped or reassigned for this dashboard and activity-history change.
 
 Version 3.3.1 fixes the fresh/managed installation path exposed by the live upgrade: `install.py` now copies the tracked `assets` directory beside the installed dashboard source. The isolated-install regression verifies both the ICNS and PNG master survive initial install and upgrade, allowing `sim-manager ui --install-app` to build from the managed prefix.
+
+## Mandatory warm release and singleton dashboard (3.4.0)
+
+Every supervised Tool/CLI command is now inspected before admission and explicit `simctl shutdown` or `adb emu kill` actions fail without creating a lease or queue entry. The read-only compliance audit classifies either action as `unsafe-shutdown` and produces specific coaching even when the task owns a valid platform lease; ordinary matching-lease runtime work remains accepted. The Skill, MCP descriptions, Quick Start, session activation guide and bilingual website all state that success, failure, timeout, interruption and cleanup return use rights while leaving the runtime warm. Manager maintenance remains the only component allowed to retire an exact provenance-verified unleased private device.
+
+The native dashboard holds a nonblocking per-user advisory lock for its whole process lifetime. A competing CLI, Dock, Finder, installer or direct-binary launch posts a distributed reveal request, activates the existing application and exits before constructing another panel or menu-bar item. The lock is automatically released if the process exits or crashes. Upgrade replacement still uses the existing exact-managed-executable graceful handover.
+
+All 111 tests pass locally. New regressions cover pre-admission iOS/Android shutdown rejection, shutdown coaching despite a valid lease, Android action classification, MCP rejection, the native singleton primitives and onboarding focus behavior. Both Skill copies validate, Python/shell/JavaScript and whitespace checks pass, and Swift compiles the dashboard for macOS 13.
 
 ## Native dashboard
 

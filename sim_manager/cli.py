@@ -7,7 +7,7 @@ import signal
 import sqlite3
 import sys
 from .core import Manager, ManagerError, positive
-from .execution import execute
+from .execution import execute, validate_runtime_command
 from . import providers, __version__
 
 
@@ -130,6 +130,8 @@ def main(argv=None):
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGHUP, interrupted)
     try:
+        if a.action == 'run':
+            validate_runtime_command(command)
         if a.action == 'ui':
             from .dashboard import launch
             output(launch(a.state_dir,a.build_only,install_app=a.install_app,onboarding=a.onboarding),a.format)

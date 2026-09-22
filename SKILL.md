@@ -15,3 +15,5 @@ not only this entry-point file. The installed Skill is `skill/simulator-manager`
 Repository: https://github.com/HankHuang0516/simulator-manager
 
 To view scheduling after activation, run `sim-manager ui` using the installed CLI. It builds and opens the native macOS floating dashboard. See [README.md](README.md#floating-dashboard).
+
+Every session must release after runtime testing without powering off its assigned simulator or emulator. Explicit `simctl shutdown` and `adb emu kill` actions are rejected; only manager maintenance may retire a verified unleased runtime. The dashboard is a per-user singleton, so every launch focuses the one existing main UI.
