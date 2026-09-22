@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Foundation
+import Combine
 import Darwin
 
 struct Metrics: Decodable { let load_ratio: Double?; let disk_free_gib: Double?; let memory_free_percent: Double? }
@@ -22,6 +23,11 @@ struct ComplianceFinding: Decodable, Identifiable {
 }
 struct Policy: Decodable { let max_renewals: Int }
 struct Snapshot: Decodable { let policy: Policy; let scheduler: Scheduler; let leases: [Lease]; let queue: [Waiter]; let sessions: [Session]; let environments: [Environment]; let events: [Event]; let compliance: [ComplianceFinding]?; let config_error: String? }
+
+enum AppLanguage: String, CaseIterable, Identifiable {
+    case automatic, english, chinese
+    var id: String { rawValue }
+}
 
 final class Bytes: @unchecked Sendable {
     private let lock = NSLock(); private var data = Data()
@@ -61,9 +67,11 @@ func readStatus(cli: String, state: String) throws -> Snapshot {
 @MainActor final class Model: ObservableObject {
     @Published var snapshot: Snapshot?; @Published var error: String?; @Published var updated: Date?
     @Published var pinned = true; @Published var selection = "Overview"; @Published var showGuide = false
+    @Published var language: AppLanguage { didSet { UserDefaults.standard.set(language.rawValue,forKey:"SimulatorManagerLanguage") } }
     var refreshInFlight = false
     let cli: String; let state: String; let demo: String?
     init() {
+        language = AppLanguage(rawValue:UserDefaults.standard.string(forKey:"SimulatorManagerLanguage") ?? "") ?? .automatic
         let args = CommandLine.arguments
         func arg(_ key: String) -> String? { guard let i = args.firstIndex(of: key), i+1 < args.count else { return nil }; return args[i+1] }
         let root = Bundle.main.bundleURL.deletingLastPathComponent()
@@ -72,6 +80,14 @@ func readStatus(cli: String, state: String) throws -> Snapshot {
         demo = arg("--demo")
         showGuide = args.contains("--onboarding") || !UserDefaults.standard.bool(forKey:"SimulatorManagerOnboardingComplete")
     }
+    var usesChinese: Bool {
+        switch language {
+        case .chinese: return true
+        case .english: return false
+        case .automatic: return Locale.preferredLanguages.first?.lowercased().hasPrefix("zh") == true
+        }
+    }
+    func text(_ english: String, _ chinese: String) -> String { usesChinese ? chinese : english }
     func refresh() async {
         guard !refreshInFlight else { return }; refreshInFlight = true; defer { refreshInFlight = false }
         let cli = self.cli, state = self.state, demo = self.demo
@@ -91,8 +107,7 @@ func readStatus(cli: String, state: String) throws -> Snapshot {
 struct GuideCopy {
     let title: String; let body: String; let bullets: [String]; let symbol: String
 }
-func localizedGuide() -> [GuideCopy] {
-    let zh = Locale.preferredLanguages.first?.lowercased().hasPrefix("zh") == true
+func localizedGuide(_ zh: Bool) -> [GuideCopy] {
     if zh { return [
         GuideCopy(title:"歡迎使用 Simulator Manager",body:"這個小浮框是所有 Codex task 共用的模擬器中轉站。關閉視窗只會隱藏；可從選單列或「應用程式」再次打開。",bullets:["安裝完成後自動啟動","常駐選單列，隨時查看排程","不會清除任何模擬器資料"],symbol:"square.stack.3d.up.fill"),
         GuideCopy(title:"先完成不需要模擬器的檢查",body:"Codex 應先執行編譯、靜態檢查與主機單元測試；只有畫面、導覽、手勢、生命週期或執行期行為才進入分配流程。",bullets:["文件與純邏輯通常不需模擬器","需要 runtime/UI 驗證才提出請求","避免浪費啟動與佔用時間"],symbol:"hammer.fill"),
@@ -111,17 +126,17 @@ func localizedGuide() -> [GuideCopy] {
 
 struct QuickStartGuide: View {
     @ObservedObject var model: Model; @State private var page = 0
-    private let pages = localizedGuide()
     var body: some View {
+        let pages = localizedGuide(model.usesChinese)
         VStack(spacing:22) {
-            HStack { Text("QUICK START").font(.system(size:10,weight:.bold)).tracking(1.4).foregroundStyle(lavender); Spacer(); Text("\(page+1) / \(pages.count)").font(.system(size:11,design:.rounded)).foregroundStyle(.secondary) }
+            HStack { Text(model.text("QUICK START","快速開始")).font(.system(size:10,weight:.bold)).tracking(1.4).foregroundStyle(lavender); Spacer(); Text("\(page+1) / \(pages.count)").font(.system(size:11,design:.rounded)).foregroundStyle(.secondary) }
             ZStack { Circle().fill(LinearGradient(colors:[lavender.opacity(0.18),mint.opacity(0.10)],startPoint:.topLeading,endPoint:.bottomTrailing)).frame(width:92,height:92); Image(systemName:pages[page].symbol).font(.system(size:38,weight:.light)).foregroundStyle(lavender) }
             VStack(spacing:10) { Text(pages[page].title).font(.system(size:24,weight:.semibold,design:.rounded)).multilineTextAlignment(.center); Text(pages[page].body).font(.system(size:13)).foregroundStyle(.secondary).multilineTextAlignment(.center).lineSpacing(3) }
             VStack(alignment:.leading,spacing:10) { ForEach(pages[page].bullets,id:\.self) { item in Label(item,systemImage:"checkmark.circle.fill").font(.system(size:12)).foregroundStyle(ink).symbolRenderingMode(.palette).foregroundStyle(mint,ink) } }.frame(maxWidth:.infinity,alignment:.leading).padding(16).background(.white.opacity(0.65),in:RoundedRectangle(cornerRadius:18))
             HStack(spacing:10) {
-                if page > 0 { Button("Back") { page -= 1 }.buttonStyle(.bordered) }
+                if page > 0 { Button(model.text("Back","上一步")) { page -= 1 }.buttonStyle(.bordered) }
                 Spacer()
-                Button(page == pages.count-1 ? "Start sharing" : "Next") {
+                Button(page == pages.count-1 ? model.text("Start sharing","開始共用") : model.text("Next","下一步")) {
                     if page == pages.count-1 { UserDefaults.standard.set(true,forKey:"SimulatorManagerOnboardingComplete"); model.showGuide=false } else { page += 1 }
                 }.buttonStyle(.borderedProminent).tint(lavender)
             }
@@ -135,6 +150,47 @@ let mint = Color(red: 0.08, green: 0.61, blue: 0.48)
 func projectName(_ path: String) -> String { URL(fileURLWithPath: path).lastPathComponent }
 func symbol(_ pool: String) -> String { pool == "ios" ? "iphone" : pool == "android" ? "smartphone" : "display" }
 func duration(_ seconds: Double) -> String { let n = max(0, Int(seconds)); return String(format: "%02d:%02d", n/60, n%60) }
+func tr(_ english: String, _ chinese: String, _ zh: Bool) -> String { zh ? chinese : english }
+func pressureName(_ value: String, _ zh: Bool) -> String {
+    if !zh { return value.capitalized }
+    return ["healthy":"正常","elevated":"偏高","high":"高壓","critical":"嚴重"].first { $0.key == value.lowercased() }?.value ?? value
+}
+func phaseName(_ value: String, _ zh: Bool) -> String {
+    if !zh { return value.capitalized }
+    return ["ready":"就緒","creating":"建立中","stopping":"退役中","failed":"失敗"].first { $0.key == value.lowercased() }?.value ?? value
+}
+func operationName(_ value: String?, _ zh: Bool) -> String {
+    guard let value else { return tr("Reserved","已保留",zh) }
+    if !zh { return value.capitalized }
+    return ["work":"工作","boot":"開機","manual":"手動操作"].first { $0.key == value.lowercased() }?.value ?? value
+}
+func eventName(_ value: String, _ zh: Bool) -> String {
+    if !zh { return value.replacingOccurrences(of:"-",with:" ").capitalized }
+    let names = ["queued":"加入排隊","acquired":"取得租約","released":"已釋放","idle-stopped":"閒置退役","mode-transition":"模式切換","session-enabled":"Task 已啟用","compliance-guidance":"使用指引"]
+    return names[value] ?? value.replacingOccurrences(of:"-",with:" ")
+}
+func guidanceText(_ finding: ComplianceFinding, _ zh: Bool) -> String {
+    guard zh else { return finding.guidance }
+    if finding.platform == "ios" {
+        return "此 task 在 Simulator Manager 租約外使用 iOS Simulator。請先完成編譯與主機測試；需要 runtime／UI 驗證時，使用 simulator_manager_run 或 sim-manager run ios，只操作分配的 SIM_MANAGER_UDID。完成後只 release 使用權，不執行 simctl shutdown，讓管理器決定暖機重用或安全退役。"
+    }
+    return "此 task 在 Simulator Manager 租約外使用 Android Emulator。請先完成編譯與主機測試；需要 runtime／UI 驗證時，使用 simulator_manager_run 或 sim-manager run android，只操作分配的 SIM_MANAGER_SERIAL。完成後只 release 使用權，不關閉 emulator、不執行 adb emu kill，也不停止共用 ADB。"
+}
+
+struct LanguagePicker: View {
+    @ObservedObject var model: Model
+    var body: some View {
+        Menu {
+            Picker(model.text("Language","語言"),selection:$model.language) {
+                Text(model.text("Automatic (Device)","自動（裝置語系）")).tag(AppLanguage.automatic)
+                Text("English").tag(AppLanguage.english)
+                Text("中文").tag(AppLanguage.chinese)
+            }
+        } label: {
+            Image(systemName:"globe").font(.system(size:12,weight:.semibold)).foregroundStyle(lavender).frame(width:27,height:27).background(.white.opacity(0.6),in:Circle())
+        }.menuStyle(.borderlessButton).frame(width:27).help(model.text("Change language","切換語言"))
+    }
+}
 
 struct CapsuleLabel: View {
     let text: String; var color = mint
@@ -149,7 +205,7 @@ struct EmptyRow: View {
     var body: some View { HStack(spacing: 12) { Image(systemName: icon).font(.system(size: 21, weight: .light)).foregroundStyle(mint); VStack(alignment: .leading, spacing: 3) { Text(title).font(.system(size: 12, weight: .medium)); Text(detail).font(.system(size: 10)).foregroundStyle(.secondary) }; Spacer() }.padding(15).background(.white.opacity(0.65), in: RoundedRectangle(cornerRadius: 17)) }
 }
 struct LeaseRow: View {
-    let lease: Lease; let renewalLimit: Int
+    let lease: Lease; let renewalLimit: Int; let chinese: Bool
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { tick in
             let now = tick.date.timeIntervalSince1970
@@ -159,11 +215,11 @@ struct LeaseRow: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 11) {
                     Image(systemName: symbol(lease.pool)).font(.system(size: 19)).foregroundStyle(color).frame(width: 35,height: 35).background(color.opacity(0.10),in: RoundedRectangle(cornerRadius: 11))
-                    VStack(alignment: .leading, spacing: 3) { Text(projectName(lease.project)).font(.system(size: 12, weight: .semibold)).lineLimit(1); Text("\(lease.pool.uppercased()) · \(lease.operation ?? "Reserved")").font(.system(size: 10)).foregroundStyle(.secondary) }
+                    VStack(alignment: .leading, spacing: 3) { Text(projectName(lease.project)).font(.system(size: 12, weight: .semibold)).lineLimit(1); Text("\(lease.pool.uppercased()) · \(operationName(lease.operation,chinese))").font(.system(size: 10)).foregroundStyle(.secondary) }
                     Spacer(); Text(duration(remaining)).font(.system(size: 18, weight: .semibold, design: .rounded)).monospacedDigit().foregroundStyle(color)
                 }
                 GeometryReader { g in ZStack(alignment: .leading) { Capsule().fill(color.opacity(0.10)); Capsule().fill(color).frame(width: g.size.width*progress) } }.frame(height: 4)
-                HStack { Text("\(lease.session.prefix(8)) · \(lease.renewals)/\(renewalLimit) renewals"); Spacer(); Text(lease.yield_by != nil ? "Checkpoint & requeue" : "Lease remaining") }.font(.system(size: 9)).foregroundStyle(.secondary)
+                HStack { Text("\(lease.session.prefix(8)) · \(lease.renewals)/\(renewalLimit) \(tr("renewals","次續租",chinese))"); Spacer(); Text(lease.yield_by != nil ? tr("Checkpoint & requeue","安全保存並重新排隊",chinese) : tr("Lease remaining","租約剩餘時間",chinese)) }.font(.system(size: 9)).foregroundStyle(.secondary)
             }.padding(14).background(.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 18))
         }
     }
@@ -179,53 +235,55 @@ struct Metric: View {
 struct Dashboard: View {
     @ObservedObject var model: Model
     var body: some View {
+        let zh = model.usesChinese
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 ZStack { RoundedRectangle(cornerRadius: 13).fill(LinearGradient(colors: [lavender, Color(red:0.54,green:0.66,blue:0.99)], startPoint:.topLeading,endPoint:.bottomTrailing)); Image(systemName:"square.stack.3d.up.fill").font(.system(size:19)).foregroundStyle(.white) }.frame(width: 39,height: 39)
-                VStack(alignment:.leading,spacing:3) { Text("Simulator Manager").font(.system(size:17,weight:.semibold,design:.rounded)); HStack(spacing:5) { Circle().fill(model.error == nil && model.updated != nil ? mint : Color.orange).frame(width:5,height:5); Text(model.demo != nil ? "Preview · sample data" : model.error == nil && model.updated != nil ? "Live shared scheduling" : "Connecting to manager").font(.system(size:10)).foregroundStyle(.secondary) } }
+                VStack(alignment:.leading,spacing:3) { Text("Simulator Manager").font(.system(size:17,weight:.semibold,design:.rounded)); HStack(spacing:5) { Circle().fill(model.error == nil && model.updated != nil ? mint : Color.orange).frame(width:5,height:5); Text(model.demo != nil ? tr("Preview · sample data","預覽 · 範例資料",zh) : model.error == nil && model.updated != nil ? tr("Live shared scheduling","即時共用排程",zh) : tr("Connecting to manager","正在連接管理器",zh)).font(.system(size:10)).foregroundStyle(.secondary) } }
                 Spacer()
-                Button { model.showGuide = true } label: { Image(systemName:"questionmark").font(.system(size:12,weight:.semibold)).foregroundStyle(lavender).frame(width:27,height:27).background(.white.opacity(0.6),in:Circle()) }.buttonStyle(.plain).help("Open the Quick Start guide")
-                Button { model.pinned.toggle(); NSApp.windows.first?.level = model.pinned ? .floating : .normal } label: { Image(systemName: model.pinned ? "pin.fill" : "pin").font(.system(size:12)).foregroundStyle(model.pinned ? lavender : .secondary).frame(width:27,height:27).background(.white.opacity(0.6),in:Circle()) }.buttonStyle(.plain).help("Keep window above other apps")
-                Button { NSApp.windows.first?.orderOut(nil) } label: { Image(systemName:"xmark").font(.system(size:10,weight:.semibold)).foregroundStyle(.secondary).frame(width:27,height:27).background(.white.opacity(0.6),in:Circle()) }.buttonStyle(.plain).help("Hide dashboard; reopen from the menu bar")
+                LanguagePicker(model:model)
+                Button { model.showGuide = true } label: { Image(systemName:"questionmark").font(.system(size:12,weight:.semibold)).foregroundStyle(lavender).frame(width:27,height:27).background(.white.opacity(0.6),in:Circle()) }.buttonStyle(.plain).help(tr("Open the Quick Start guide","開啟 Quick Start 教學",zh))
+                Button { model.pinned.toggle(); NSApp.windows.first?.level = model.pinned ? .floating : .normal } label: { Image(systemName: model.pinned ? "pin.fill" : "pin").font(.system(size:12)).foregroundStyle(model.pinned ? lavender : .secondary).frame(width:27,height:27).background(.white.opacity(0.6),in:Circle()) }.buttonStyle(.plain).help(tr("Keep window above other apps","讓視窗保持在其他 App 上方",zh))
+                Button { NSApp.windows.first?.orderOut(nil) } label: { Image(systemName:"xmark").font(.system(size:10,weight:.semibold)).foregroundStyle(.secondary).frame(width:27,height:27).background(.white.opacity(0.6),in:Circle()) }.buttonStyle(.plain).help(tr("Hide dashboard; reopen from the menu bar","隱藏浮框；可從選單列重新開啟",zh))
             }.padding(.horizontal,20).padding(.top,22).padding(.bottom,17)
             ScrollView {
                 VStack(alignment:.leading,spacing:17) {
                     if let error = model.error { Label(error,systemImage:"exclamationmark.triangle.fill").font(.system(size:11)).foregroundStyle(.orange).padding(12).frame(maxWidth:.infinity,alignment:.leading).background(.orange.opacity(0.08),in:RoundedRectangle(cornerRadius:14)) }
                     if let s = model.snapshot {
                         VStack(alignment:.leading,spacing:12) {
-                            HStack { Text(["Dynamic Pool","Constrained","Draining","Traditional Mode"][min(3,max(0,s.scheduler.stage))]).font(.system(size:21,weight:.semibold,design:.rounded)); Spacer(); CapsuleLabel(text:s.scheduler.pressure.capitalized,color:s.scheduler.pressure == "healthy" ? mint : .orange) }
-                            Text(s.scheduler.creation_allowed ? "Private environments · up to \(s.scheduler.capacity) mobile allocations" : "New environments paused · existing work stays protected").font(.system(size:10)).foregroundStyle(.secondary)
+                            HStack { Text((zh ? ["Dynamic Pool","受限模式","降載中","傳統模式"] : ["Dynamic Pool","Constrained","Draining","Traditional Mode"])[min(3,max(0,s.scheduler.stage))]).font(.system(size:21,weight:.semibold,design:.rounded)); Spacer(); CapsuleLabel(text:pressureName(s.scheduler.pressure,zh),color:s.scheduler.pressure == "healthy" ? mint : .orange) }
+                            Text(s.scheduler.creation_allowed ? tr("Private environments · up to \(s.scheduler.capacity) mobile allocations","私人環境 · 最多同時分配 \(s.scheduler.capacity) 個行動裝置",zh) : tr("New environments paused · existing work stays protected","已暫停建立新環境 · 現有工作仍受保護",zh)).font(.system(size:10)).foregroundStyle(.secondary)
                             HStack(spacing:5) { ForEach(0..<4) { stage in Capsule().fill(stage <= s.scheduler.stage ? (s.scheduler.stage == 0 ? mint : Color.orange) : ink.opacity(0.07)).frame(height:4) } }
-                            HStack { Text("Dynamic"); Spacer(); Text("Traditional") }.font(.system(size:9)).foregroundStyle(.secondary)
+                            HStack { Text(tr("Dynamic","動態",zh)); Spacer(); Text(tr("Traditional","傳統",zh)) }.font(.system(size:9)).foregroundStyle(.secondary)
                         }.padding(16).background(.white.opacity(0.7),in:RoundedRectangle(cornerRadius:20))
-                        HStack(spacing:8) { Metric(name:"In use",value:String(s.leases.count),icon:"bolt.fill"); Metric(name:"Waiting",value:String(s.queue.count),icon:"line.3.horizontal"); Metric(name:"Registered",value:String(s.sessions.count),icon:"person.2.fill") }
+                        HStack(spacing:8) { Metric(name:tr("In use","使用中",zh),value:String(s.leases.count),icon:"bolt.fill"); Metric(name:tr("Waiting","排隊中",zh),value:String(s.queue.count),icon:"line.3.horizontal"); Metric(name:tr("Registered","已登記",zh),value:String(s.sessions.count),icon:"person.2.fill") }
                         if let findings = s.compliance, !findings.isEmpty {
-                            SectionTitle(title:"Guidance center",count:findings.count)
+                            SectionTitle(title:tr("Guidance center","教學指引中心",zh),count:findings.count)
                             ForEach(findings) { finding in
                                 VStack(alignment:.leading,spacing:8) {
-                                    HStack { Image(systemName:"graduationcap.fill").foregroundStyle(.orange); VStack(alignment:.leading,spacing:2) { Text(projectName(finding.project)).font(.system(size:12,weight:.semibold)); Text("\(finding.platform.uppercased()) · \(finding.kind.replacingOccurrences(of:"-",with:" ")) · \(finding.session.prefix(8))").font(.system(size:9)).foregroundStyle(.secondary) }; Spacer(); CapsuleLabel(text:"GUIDANCE",color:.orange) }
-                                    Text(finding.guidance).font(.system(size:10)).foregroundStyle(.secondary).lineSpacing(2)
+                                    HStack { Image(systemName:"graduationcap.fill").foregroundStyle(.orange); VStack(alignment:.leading,spacing:2) { Text(projectName(finding.project)).font(.system(size:12,weight:.semibold)); Text("\(finding.platform.uppercased()) · \(finding.kind.replacingOccurrences(of:"-",with:" ")) · \(finding.session.prefix(8))").font(.system(size:9)).foregroundStyle(.secondary) }; Spacer(); CapsuleLabel(text:tr("GUIDANCE","指引",zh),color:.orange) }
+                                    Text(guidanceText(finding,zh)).font(.system(size:10)).foregroundStyle(.secondary).lineSpacing(2)
                                 }.padding(14).background(.orange.opacity(0.08),in:RoundedRectangle(cornerRadius:18)).overlay(RoundedRectangle(cornerRadius:18).stroke(.orange.opacity(0.18)))
                             }
                         }
-                        SectionTitle(title:"Active allocations",count:s.leases.count)
-                        if s.leases.isEmpty { EmptyRow(icon:"checkmark.circle",title:"Resources are resting",detail:"Runtime requests appear here automatically.") } else { ForEach(s.leases) { LeaseRow(lease:$0,renewalLimit:s.policy.max_renewals) } }
-                        SectionTitle(title:"FIFO waiting line",count:s.queue.count)
-                        if s.queue.isEmpty { EmptyRow(icon:"sparkles",title:"No requests waiting",detail:"Build and unit work can continue independently.") } else { ForEach(Array(s.queue.enumerated()),id:\.element.id) { index, waiter in WaitRow(waiter:waiter,position:index+1) } }
-                        HStack(spacing:8) { Metric(name:"CPU load / core",value:s.scheduler.metrics.load_ratio.map { String(format:"%.0f%%",$0*100) } ?? "—",icon:"cpu"); Metric(name:"Memory free",value:s.scheduler.metrics.memory_free_percent.map { String(format:"%.0f%%",$0) } ?? "—",icon:"memorychip"); Metric(name:"Disk free",value:s.scheduler.metrics.disk_free_gib.map { String(format:"%.1f GB",$0) } ?? "—",icon:"externaldrive") }
+                        SectionTitle(title:tr("Active allocations","使用中的分配",zh),count:s.leases.count)
+                        if s.leases.isEmpty { EmptyRow(icon:"checkmark.circle",title:tr("Resources are resting","資源目前閒置",zh),detail:tr("Runtime requests appear here automatically.","Runtime 請求會自動顯示在這裡。",zh)) } else { ForEach(s.leases) { LeaseRow(lease:$0,renewalLimit:s.policy.max_renewals,chinese:zh) } }
+                        SectionTitle(title:tr("FIFO waiting line","FIFO 排隊",zh),count:s.queue.count)
+                        if s.queue.isEmpty { EmptyRow(icon:"sparkles",title:tr("No requests waiting","目前無人排隊",zh),detail:tr("Build and unit work can continue independently.","編譯與單元測試可繼續獨立執行。",zh)) } else { ForEach(Array(s.queue.enumerated()),id:\.element.id) { index, waiter in WaitRow(waiter:waiter,position:index+1) } }
+                        HStack(spacing:8) { Metric(name:tr("CPU load / core","每核心 CPU 負載",zh),value:s.scheduler.metrics.load_ratio.map { String(format:"%.0f%%",$0*100) } ?? "—",icon:"cpu"); Metric(name:tr("Memory free","可用記憶體",zh),value:s.scheduler.metrics.memory_free_percent.map { String(format:"%.0f%%",$0) } ?? "—",icon:"memorychip"); Metric(name:tr("Disk free","可用磁碟",zh),value:s.scheduler.metrics.disk_free_gib.map { String(format:"%.1f GB",$0) } ?? "—",icon:"externaldrive") }
                         DisclosureGroup {
-                            VStack(spacing:8) { ForEach(s.sessions) { session in HStack { Circle().fill(s.leases.contains { $0.session == session.session } ? lavender : ink.opacity(0.15)).frame(width:6,height:6); VStack(alignment:.leading,spacing:2) { Text(projectName(session.project)).font(.system(size:11,weight:.medium)); Text(String(session.session.prefix(8))).font(.system(size:9)).foregroundStyle(.secondary) }; Spacer(); CapsuleLabel(text:s.leases.contains { $0.session == session.session } ? "Allocated" : s.queue.contains { $0.session == session.session } ? "Queued" : "Registered",color:s.leases.contains { $0.session == session.session } ? lavender : mint) }.padding(.vertical,5) } }.padding(.top,7)
-                        } label: { SectionTitle(title:"Sessions",count:s.sessions.count) }.tint(lavender)
+                            VStack(spacing:8) { ForEach(s.sessions) { session in HStack { Circle().fill(s.leases.contains { $0.session == session.session } ? lavender : ink.opacity(0.15)).frame(width:6,height:6); VStack(alignment:.leading,spacing:2) { Text(projectName(session.project)).font(.system(size:11,weight:.medium)); Text(String(session.session.prefix(8))).font(.system(size:9)).foregroundStyle(.secondary) }; Spacer(); CapsuleLabel(text:s.leases.contains { $0.session == session.session } ? tr("Allocated","已分配",zh) : s.queue.contains { $0.session == session.session } ? tr("Queued","排隊中",zh) : tr("Registered","已登記",zh),color:s.leases.contains { $0.session == session.session } ? lavender : mint) }.padding(.vertical,5) } }.padding(.top,7)
+                        } label: { SectionTitle(title:tr("Sessions","Tasks",zh),count:s.sessions.count) }.tint(lavender)
                         DisclosureGroup {
-                            VStack(spacing:8) { ForEach(s.environments) { env in HStack { Image(systemName:symbol(env.pool)).foregroundStyle(lavender); Text(projectName(env.project)).font(.system(size:11)).lineLimit(1); Spacer(); CapsuleLabel(text:env.running == 1 ? "Running" : env.phase.capitalized) }.padding(.vertical,5) } }.padding(.top,7)
-                        } label: { SectionTitle(title:"Private environments",count:s.environments.count) }.tint(lavender)
+                            VStack(spacing:8) { ForEach(s.environments) { env in HStack { Image(systemName:symbol(env.pool)).foregroundStyle(lavender); Text(projectName(env.project)).font(.system(size:11)).lineLimit(1); Spacer(); CapsuleLabel(text:env.running == 1 ? tr("Running","執行中",zh) : phaseName(env.phase,zh)) }.padding(.vertical,5) } }.padding(.top,7)
+                        } label: { SectionTitle(title:tr("Private environments","私人環境",zh),count:s.environments.count) }.tint(lavender)
                         if !s.events.isEmpty { DisclosureGroup {
-                            VStack(alignment:.leading,spacing:9) { ForEach(Array(s.events.prefix(8))) { event in HStack { Circle().fill(event.event == "acquired" ? lavender : mint).frame(width:5,height:5); Text(event.event.replacingOccurrences(of:"-",with:" ").capitalized).font(.system(size:10)); Spacer(); Text(Date(timeIntervalSince1970:event.time),style:.time).font(.system(size:9)).foregroundStyle(.secondary) } } }.padding(.top,8)
-                        } label: { SectionTitle(title:"Recent activity",count:min(8,s.events.count)) }.tint(lavender) }
-                    } else { EmptyRow(icon:"antenna.radiowaves.left.and.right",title:"Loading shared state",detail:"The dashboard follows your local manager.") }
+                            VStack(alignment:.leading,spacing:9) { ForEach(Array(s.events.prefix(8))) { event in HStack { Circle().fill(event.event == "acquired" ? lavender : mint).frame(width:5,height:5); Text(eventName(event.event,zh)).font(.system(size:10)); Spacer(); Text(Date(timeIntervalSince1970:event.time),style:.time).font(.system(size:9)).foregroundStyle(.secondary) } } }.padding(.top,8)
+                        } label: { SectionTitle(title:tr("Recent activity","最近活動",zh),count:min(8,s.events.count)) }.tint(lavender) }
+                    } else { EmptyRow(icon:"antenna.radiowaves.left.and.right",title:tr("Loading shared state","正在載入共用狀態",zh),detail:tr("The dashboard follows your local manager.","浮框會讀取本機 Simulator Manager。",zh)) }
                 }.padding(.horizontal,20).padding(.bottom,18)
             }.scrollIndicators(.hidden)
-            HStack { Text("VIEW ONLY").font(.system(size:8,weight:.semibold)).tracking(1).foregroundStyle(lavender); Spacer(); if let updated = model.updated { Text("Updated \(updated.formatted(date:.omitted,time:.standard))").font(.system(size:9)).foregroundStyle(.secondary) }; Button { Task { await model.refresh() } } label:{ Image(systemName:"arrow.clockwise").font(.system(size:11)).foregroundStyle(lavender) }.buttonStyle(.plain).help("Refresh") }.padding(.horizontal,21).padding(.vertical,13).background(.white.opacity(0.45))
+            HStack { Text(tr("VIEW ONLY","僅供檢視",zh)).font(.system(size:8,weight:.semibold)).tracking(1).foregroundStyle(lavender); Spacer(); if let updated = model.updated { Text("\(tr("Updated","更新於",zh)) \(updated.formatted(date:.omitted,time:.standard))").font(.system(size:9)).foregroundStyle(.secondary) }; Button { Task { await model.refresh() } } label:{ Image(systemName:"arrow.clockwise").font(.system(size:11)).foregroundStyle(lavender) }.buttonStyle(.plain).help(tr("Refresh","重新整理",zh)) }.padding(.horizontal,21).padding(.vertical,13).background(.white.opacity(0.45))
         }.foregroundStyle(ink).background(LinearGradient(colors:[Color(red:0.94,green:0.95,blue:1),Color(red:0.96,green:0.98,blue:0.98)],startPoint:.topLeading,endPoint:.bottomTrailing)).background(.ultraThinMaterial).clipShape(RoundedRectangle(cornerRadius:26)).preferredColorScheme(.light)
         .sheet(isPresented:$model.showGuide) { QuickStartGuide(model:model) }
         .task { while !Task.isCancelled { await model.refresh(); try? await Task.sleep(nanoseconds:2_000_000_000) } }
@@ -233,7 +291,7 @@ struct Dashboard: View {
 }
 
 @MainActor final class Delegate: NSObject, NSApplicationDelegate {
-    var panel: NSPanel!; var item: NSStatusItem!; let model = Model()
+    var panel: NSPanel!; var item: NSStatusItem!; var languageObserver: AnyCancellable?; let model = Model()
     func applicationDidFinishLaunching(_ notification: Notification) {
         panel = NSPanel(contentRect:NSRect(x:0,y:0,width:420,height:690),styleMask:[.borderless,.resizable],backing:.buffered,defer:false)
         panel.title = "Simulator Manager"; panel.isFloatingPanel = true; panel.level = .floating; panel.isMovableByWindowBackground = true
@@ -256,18 +314,37 @@ struct Dashboard: View {
             return
         }
         panel.makeKeyAndOrderFront(nil)
-        let mainMenu = NSMenu(), appMenu = NSMenu(), appItem = NSMenuItem()
-        let quitItem = NSMenuItem(title:"Quit Dashboard",action:#selector(quit),keyEquivalent:"q")
-        quitItem.target = self; appMenu.addItem(quitItem); appItem.submenu = appMenu
-        mainMenu.addItem(appItem); NSApp.mainMenu = mainMenu
         item = NSStatusBar.system.statusItem(withLength:NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName:"square.stack.3d.up",accessibilityDescription:"Simulator Manager")
-        let menu = NSMenu(); menu.addItem(withTitle:"Show Dashboard",action:#selector(show),keyEquivalent:""); menu.addItem(withTitle:"Quick Start Guide",action:#selector(guide),keyEquivalent:""); menu.addItem(.separator()); menu.addItem(withTitle:"Quit Dashboard",action:#selector(quit),keyEquivalent:"q")
-        for child in menu.items { child.target = self }; item.menu = menu
+        rebuildMenus()
+        languageObserver = model.$language.dropFirst().sink { [weak self] _ in self?.rebuildMenus() }
         NSApp.activate(ignoringOtherApps:true)
+    }
+    func languageItem(_ title: String, action: Selector, selected: Bool) -> NSMenuItem {
+        let entry = NSMenuItem(title:title,action:action,keyEquivalent:""); entry.target = self; entry.state = selected ? .on : .off; return entry
+    }
+    func rebuildMenus() {
+        let mainMenu = NSMenu(), appMenu = NSMenu(), appItem = NSMenuItem()
+        let quitItem = NSMenuItem(title:model.text("Quit Dashboard","結束浮框"),action:#selector(quit),keyEquivalent:"q")
+        quitItem.target = self; appMenu.addItem(quitItem); appItem.submenu = appMenu; mainMenu.addItem(appItem); NSApp.mainMenu = mainMenu
+        guard item != nil else { return }
+        let menu = NSMenu()
+        menu.addItem(withTitle:model.text("Show Dashboard","顯示浮框"),action:#selector(show),keyEquivalent:"")
+        menu.addItem(withTitle:model.text("Quick Start Guide","Quick Start 教學"),action:#selector(guide),keyEquivalent:"")
+        let language = NSMenuItem(title:model.text("Language","語言"),action:nil,keyEquivalent:"")
+        let choices = NSMenu()
+        choices.addItem(languageItem(model.text("Automatic (Device)","自動（裝置語系）"),action:#selector(useAutomaticLanguage),selected:model.language == .automatic))
+        choices.addItem(languageItem("English",action:#selector(useEnglish),selected:model.language == .english))
+        choices.addItem(languageItem("中文",action:#selector(useChinese),selected:model.language == .chinese))
+        language.submenu = choices; menu.addItem(language)
+        menu.addItem(.separator()); menu.addItem(withTitle:model.text("Quit Dashboard","結束浮框"),action:#selector(quit),keyEquivalent:"q")
+        for child in menu.items where child.action != nil { child.target = self }; item.menu = menu
     }
     @objc func show() { panel.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps:true) }
     @objc func guide() { model.showGuide = true; show() }
+    @objc func useAutomaticLanguage() { model.language = .automatic }
+    @objc func useEnglish() { model.language = .english }
+    @objc func useChinese() { model.language = .chinese }
     @objc func quit() { NSApp.terminate(nil) }
     func applicationShouldHandleReopen(_ sender:NSApplication,hasVisibleWindows:Bool)->Bool { show(); return true }
 }

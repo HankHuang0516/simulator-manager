@@ -229,7 +229,7 @@ def handle(message: dict[str, Any]) -> dict[str, Any] | None:
         return None
     if method == "initialize":
         result = {"protocolVersion": PROTOCOL_VERSION, "capabilities": {"tools": {"listChanged": False}},
-                  "serverInfo": {"name": "simulator-manager", "version": "3.1.2"}}
+                  "serverInfo": {"name": "simulator-manager", "version": "3.2.0"}}
     elif method == "ping":
         result = {}
     elif method == "tools/list":

@@ -1,6 +1,6 @@
 # Validation report
 
-Validated through September 22, 2026. Current version 3.1.2; earlier sections preserve historical validation evidence.
+Validated through September 22, 2026. Current version 3.2.0; earlier sections preserve historical validation evidence.
 
 ## Local environment
 
@@ -51,6 +51,10 @@ The native SwiftUI application compiled for macOS 13, installed into `~/Applicat
 All 100 tests passed locally in 54.963 seconds. Existing warm-reuse regressions still prove that consecutive supervised chunks reuse one boot, a matching queued owner protects its warm environment after idle expiry, release does not issue a shutdown, and only exact provenance-verified unleased environments can be retired. Compliance tests now verify that iOS and Android guidance explicitly tells a drifting task to release use rights without `simctl shutdown`, emulator close, or `adb emu kill`. Both installed-Skill copies pass validation; Python/shell/JavaScript syntax, `git diff --check`, and the native SwiftUI macOS 13 build pass. No live simulator was booted for this guidance-only change.
 
 Version 3.1.2 fixes native dashboard upgrade handover. An installer-run app replacement now validates the managed bundle marker, sends SIGTERM only to processes whose executable is the exact managed app path, waits for a clean exit, and defers rather than force-killing if the dashboard does not close. It then opens one new instance without `open -n`, preventing stale Quick Start copy and duplicate menu-bar items. Two exact-path/graceful-signal regressions bring the complete suite to 102 passing tests in 56.524 seconds. The watcher, Codex task processes and simulator runtimes are outside this exact path and are never targeted.
+
+## Native language selection (3.2.0)
+
+The native dashboard now opens in Automatic (Device) mode on first launch and resolves any `zh` device locale to Traditional Chinese; all other device locales use English. The globe menu switches the dashboard and Quick Start immediately between Automatic, English and Traditional Chinese, and an explicit choice persists across a graceful app restart. Accessibility inspection verified the Chinese live dashboard, the English live dashboard, both localized language menus and Automatic returning to Chinese on this Traditional Chinese Mac. The final saved choice was restored to Automatic. All 102 tests pass, both Skill copies validate, Python/shell/JavaScript static checks pass, and the SwiftUI application compiles for macOS 13. No simulator or emulator was booted, stopped or reassigned for this interface-only verification; existing managed work was allowed to finish normally.
 
 ## Native dashboard
 

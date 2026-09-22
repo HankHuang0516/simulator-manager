@@ -60,7 +60,7 @@ This is device-data isolation similar to dedicated development environments. It 
 
 Private identity does not mean permanent occupancy. Keep the returned session label stable, including across tool calls. A new label or different project path creates a different environment. At `max_environments`, new owners wait/timeout; existing environments are never silently erased or reassigned. Failed partial creations remain visible and quarantined for operator inspection.
 
-Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 3.1.2.
+Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 3.2.0.
 
 ## Time limits and fair yielding
 
@@ -258,7 +258,7 @@ sim-manager ui --install-app --onboarding
 
 The first launch compiles a small native SwiftUI app with the installed Xcode command line tools. Subsequent launches open immediately. No packages, web service, account or additional permissions are required. The compiled app is also directly clickable at `<install-prefix>/Simulator Manager.app`.
 
-The iOS-inspired floating panel shows live admission mode, active allocations and effective lease countdowns, FIFO requests and wait time, registered sessions, private environments, host pressure, recent activity, and a Guidance Center for active compliance coaching. The question-mark button replays the five-step Quick Start. It refreshes every two seconds without overlapping requests. CPU shows normalized load per core, not CPU utilization. “Registered” means adopted the Skill; it does not claim a task is currently running.
+The iOS-inspired floating panel shows live admission mode, active allocations and effective lease countdowns, FIFO requests and wait time, registered sessions, private environments, host pressure, recent activity, and a Guidance Center for active compliance coaching. The globe menu switches among **Automatic (Device)**, **English**, and **中文**; Automatic is the persisted default and follows the first preferred macOS language. Dashboard text, Quick Start, guidance, status labels and menu-bar commands change immediately. The question-mark button replays the five-step Quick Start. It refreshes every two seconds without overlapping requests. CPU shows normalized load per core, not CPU utilization. “Registered” means adopted the Skill; it does not claim a task is currently running.
 
 Pin/unpin the window, drag its background, resize it, or close it to hide. Reopen from the menu-bar stack icon; choose **Quit Dashboard** to exit. The manager watcher continues when the dashboard is hidden or closed. The panel observes the existing status API and offers no release, shutdown, cancellation or configuration controls. Status retains its normal safe housekeeping behavior. Custom installations use `sim-manager ui --state-dir /shared/path`; a directly opened app uses `SIM_MANAGER_STATE_DIR` or the default state. Quit and reopen before switching state directories.
 
