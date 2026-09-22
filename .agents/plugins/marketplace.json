@@ -1,0 +1,20 @@
+{
+  "name": "hank-tools",
+  "interface": {
+    "displayName": "Hank Tools"
+  },
+  "plugins": [
+    {
+      "name": "simulator-manager",
+      "source": {
+        "source": "local",
+        "path": "./plugins/simulator-manager"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

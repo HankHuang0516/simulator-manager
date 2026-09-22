@@ -1,8 +1,22 @@
-# simulator-manager
+# Simulator Manager Tool
 
 **Your session. Your simulator. A fair share of the Mac.**
 
-A Codex Skill and macOS shared resource scheduler. New installations default to **Dynamic Simulator Pool**: each session/project gets its own persistent iOS device or Android writable AVD, created lazily for runtime testing. Host pressure gradually reduces concurrency and falls back to **Traditional Mode**, the original shared-pool FIFO scheduler. Python 3.9+, standard library only.
+A local Codex Tool, Skill and macOS shared resource scheduler. The Tool exposes safe MCP actions while the scheduler enforces ownership, FIFO admission, occupancy deadlines and release. New installations default to **Dynamic Simulator Pool**: each session/project gets its own persistent iOS device or Android writable AVD, created lazily for runtime testing. Host pressure gradually reduces concurrency and falls back to **Traditional Mode**, the original shared-pool FIFO scheduler. Python 3.9+, standard library only.
+
+**Official website:** [eclawbot.com/AiHankApps/tools/simulator-manager](https://eclawbot.com/AiHankApps/tools/simulator-manager/)
+
+## One-command Tool install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/HankHuang0516/simulator-manager/main/install-tool.sh | sh
+```
+
+This installs the CLI and Skill in the user account, adds the public `hank-tools` marketplace, and installs the `simulator-manager` Codex Plugin. Start a new Codex task, then say:
+
+> Use simulator-manager for this project.
+
+The Tool provides `simulator_manager_status`, `simulator_manager_enable`, `simulator_manager_run`, `simulator_manager_cleanup`, `simulator_manager_ui`, and `simulator_manager_doctor`. Runtime commands are passed as argv arrays and always execute through the supervised `run` lifecycle.
 
 ## Enable with one message
 
@@ -42,7 +56,7 @@ This is device-data isolation similar to dedicated development environments. It 
 
 Private identity does not mean permanent occupancy. Keep the returned session label stable, including across tool calls. A new label or different project path creates a different environment. At `max_environments`, new owners wait/timeout; existing environments are never silently erased or reassigned. Failed partial creations remain visible and quarantined for operator inspection.
 
-Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 2.0.3.
+Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 3.0.0.
 
 ## Time limits and fair yielding
 

@@ -1,0 +1,34 @@
+{
+  "name": "simulator-manager",
+  "version": "3.0.0",
+  "description": "Coordinate iOS Simulators and Android Emulators across Codex sessions with private environments, FIFO fallback, fair-use deadlines, and guaranteed release.",
+  "author": {
+    "name": "Hank Huang",
+    "url": "https://github.com/HankHuang0516"
+  },
+  "homepage": "https://eclawbot.com/AiHankApps/tools/simulator-manager/",
+  "repository": "https://github.com/HankHuang0516/simulator-manager",
+  "license": "MIT",
+  "keywords": ["ios", "android", "simulator", "emulator", "fifo", "codex"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Simulator Manager",
+    "shortDescription": "Share mobile simulators safely across Codex sessions",
+    "longDescription": "Gives Codex local tools to inspect, enable, schedule, and monitor shared iOS Simulator and Android Emulator resources. Runtime work is supervised so queue fairness, total occupancy limits, pressure fallback, and release on failure are enforced.",
+    "developerName": "Hank Huang",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "websiteURL": "https://eclawbot.com/AiHankApps/tools/simulator-manager/",
+    "privacyPolicyURL": "https://eclawbot.com/AiHankApps/tools/simulator-manager/#privacy",
+    "termsOfServiceURL": "https://github.com/HankHuang0516/simulator-manager/blob/main/LICENSE",
+    "defaultPrompt": [
+      "Enable Simulator Manager for this project",
+      "Run this UI test with a managed simulator",
+      "Show the shared simulator queue and host pressure"
+    ],
+    "brandColor": "#0A84FF",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/logo.svg"
+  }
+}

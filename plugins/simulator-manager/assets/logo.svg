@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 160" role="img" aria-label="Simulator Manager">
+  <rect width="560" height="160" rx="32" fill="#07121f"/>
+  <g transform="translate(28 26)"><rect width="64" height="104" rx="18" fill="none" stroke="#0A84FF" stroke-width="9"/><rect x="54" y="14" width="54" height="90" rx="16" fill="#07121f" stroke="#30D158" stroke-width="9"/><path d="M18 122h78" stroke="#fff" stroke-width="9" stroke-linecap="round"/></g>
+  <text x="165" y="76" fill="white" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="39" font-weight="700">Simulator</text>
+  <text x="165" y="119" fill="#64D2FF" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="39" font-weight="700">Manager</text>
+</svg>

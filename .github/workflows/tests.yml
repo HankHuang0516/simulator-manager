@@ -24,9 +24,11 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Validate shell entry points
-        run: sh -n install.sh bootstrap.sh
+        run: sh -n install.sh bootstrap.sh install-tool.sh
       - name: Compile Python sources
-        run: python -m compileall -q sim_manager tests install.py activate.py
+        run: python -m compileall -q sim_manager tests install.py activate.py plugins/simulator-manager/scripts/mcp_server.py
+      - name: Validate Plugin manifests
+        run: python -m json.tool plugins/simulator-manager/.codex-plugin/plugin.json >/dev/null && python -m json.tool plugins/simulator-manager/.mcp.json >/dev/null && python -m json.tool .agents/plugins/marketplace.json >/dev/null
       - name: Test activation, resource exclusion, queues, and SDK adapters
         run: python -m unittest discover -s tests -v
       - name: Compile native floating dashboard
