@@ -12,7 +12,7 @@ import sys
 from typing import Any
 
 PROTOCOL_VERSION = "2025-03-26"
-SERVER_VERSION = "3.4.1"
+SERVER_VERSION = "3.5.0"
 MAX_CAPTURE = 32768
 
 TOOLS = [
@@ -37,7 +37,7 @@ TOOLS = [
     },
     {
         "name": "simulator_manager_run",
-        "description": "Acquire through FIFO admission, optionally boot the assigned device, run one argv command under the total occupancy deadline, and always release without powering off the simulator/emulator. Explicit shutdown actions are rejected. Use only after build/unit checks show runtime or UI validation is needed.",
+        "description": "Acquire through FIFO admission, optionally boot the assigned device, run one argv command under a total occupancy deadline of up to 2400 seconds, and always release without powering off the simulator/emulator. If another task waits, checkpoint at the 120-second fair-use boundary and requeue. Explicit shutdown actions are rejected. Use only after build/unit checks show runtime or UI validation is needed.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -48,8 +48,8 @@ TOOLS = [
                 "boot": {"type": "boolean", "default": True},
                 "foreground": {"type": "boolean", "default": False},
                 "queue_timeout_seconds": {"type": "number", "minimum": 0, "maximum": 900, "default": 300},
-                "command_timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 600, "default": 600},
-                "budget_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 600, "default": 600},
+                "command_timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 2400, "default": 2400},
+                "budget_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 2400, "default": 2400},
                 "restartable": {"type": "boolean", "default": False},
                 "max_requeues": {"type": "integer", "minimum": 0, "maximum": 3, "default": 0},
             },
@@ -192,8 +192,8 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
             raise ToolError("command must be a non-empty array of non-empty argv strings")
         _reject_runtime_shutdown(command)
         queue_timeout = _number(a.get("queue_timeout_seconds", 300), "queue_timeout_seconds", 0, 900)
-        command_timeout = _number(a.get("command_timeout_seconds", 600), "command_timeout_seconds", 0.001, 600)
-        budget = _number(a.get("budget_seconds", 600), "budget_seconds", 0.001, 600)
+        command_timeout = _number(a.get("command_timeout_seconds", 2400), "command_timeout_seconds", 0.001, 2400)
+        budget = _number(a.get("budget_seconds", 2400), "budget_seconds", 0.001, 2400)
         max_requeues = a.get("max_requeues", 0)
         if isinstance(max_requeues, bool) or not isinstance(max_requeues, int) or not 0 <= max_requeues <= 3:
             raise ToolError("max_requeues must be an integer from 0 to 3")

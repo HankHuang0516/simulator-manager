@@ -33,13 +33,13 @@ Call `simulator_manager_run` with `platform`, the saved `session`, the canonical
 The equivalent CLI form is:
 
 ```sh
-sim-manager run ios --session '<saved-label>' --project '/saved/absolute/project/path' --boot --timeout 300 --budget-seconds 600 -- sh -eu -c '
+sim-manager run ios --session '<saved-label>' --project '/saved/absolute/project/path' --boot --timeout 300 --command-timeout 2400 --budget-seconds 2400 -- sh -eu -c '
   xcodebuild test-without-building -scheme MyApp -destination "id=$SIM_MANAGER_UDID"
 '
 ```
 
 ```sh
-sim-manager run android --session '<saved-label>' --project '/saved/absolute/project/path' --boot --timeout 300 --budget-seconds 600 -- sh -eu -c '
+sim-manager run android --session '<saved-label>' --project '/saved/absolute/project/path' --boot --timeout 300 --command-timeout 2400 --budget-seconds 2400 -- sh -eu -c '
   adb -s "$SIM_MANAGER_SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk
   adb -s "$SIM_MANAGER_SERIAL" shell am start -n com.example.app/.MainActivity
   # Add meaningful, explicitly targeted runtime assertions.
@@ -54,9 +54,9 @@ Only use assigned `SIM_MANAGER_UDID` / `SIM_MANAGER_SERIAL`. Never use `booted`,
 
 ## Occupancy and fair-use rules
 
-- Default total use budget: **600 seconds including creation and boot**. Request less with `--budget-seconds`; never exceed the shared maximum. Do not reset the clock by switching phases or renewing.
+- Default total use budget: **2400 seconds (40 minutes) including creation, boot, installation, validation and artifact export**. Request less with `--budget-seconds`; never exceed the shared maximum. A 1800-second soak fits only when no waiter arrives. Do not reset the clock by switching phases or renewing.
 - At most **3 actual lease extensions**. No-op renewal checks do not count; every extension remains capped by the original hard deadline. An expired lease cannot be revived. Finish/cancel, release and request a fresh lease.
-- When someone waits, yield at the **120-second** slice boundary. If that boundary is already past, the manager gives a **10-second** checkpoint window, capped by the original deadline. Observe the reported `yield_by` and remaining time.
+- When someone waits, yield at the **120-second** slice boundary even if the 2400-second hard limit has time remaining. If that boundary is already past, the manager gives a **10-second** checkpoint window, capped by the original deadline. Observe the reported `yield_by` and remaining time.
 - Split validation into short chunks. Handle SIGTERM by checkpointing and exiting; the supervisor then cancels surviving owned processes after its termination grace. Cancellation is not arbitrary side-effect rollback.
 - Exit **75** means safely yielded: request remaining work again at the **FIFO tail**. Keep the same environment label, but obtain a new lease token. Never continue using the simulator between leases or jump the queue.
 - Only explicitly checkpointed/restartable commands may use `--requeue-on-yield --max-requeues 3`. Otherwise save remaining steps and request them separately. If retries/queue wait end, report pending validation and requeue remaining work when continuing; never silently skip it.

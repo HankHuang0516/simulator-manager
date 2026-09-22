@@ -60,7 +60,7 @@ This is device-data isolation similar to dedicated development environments. It 
 
 Private identity does not mean permanent occupancy. Keep the returned session label stable, including across tool calls. A new label or different project path creates a different environment. At `max_environments`, new owners wait/timeout; existing environments are never silently erased or reassigned. Failed partial creations remain visible and quarantined for operator inspection.
 
-Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 3.4.1.
+Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 3.5.0.
 
 ## Time limits and fair yielding
 
@@ -68,7 +68,7 @@ New-install defaults:
 
 | Policy | Default | Enforcement |
 | --- | --- | --- |
-| `max_hold_seconds` | 600 seconds | Includes environment creation, boot and work from lease grant |
+| `max_hold_seconds` | 2400 seconds | Includes environment creation, boot, installation, validation and export from lease grant |
 | `max_renewals` | 3 actual extensions | No renewal can move the total deadline; no-op renewals do not count |
 | `waiter_slice_seconds` | 120 seconds | When another session waits, the current borrower must yield at its slice boundary |
 | `yield_grace_seconds` | 10 seconds | If the slice is already used, give a short checkpoint window |
@@ -148,7 +148,7 @@ Pass the same canonical `--project` on every acquire/run. If omitted, the curren
 
 ```sh
 # Host build and unit tests first; runtime work only inside the lease.
-sim-manager run ios --session my-session --project /absolute/project/path --boot --budget-seconds 600 -- sh -eu -c '
+sim-manager run ios --session my-session --project /absolute/project/path --boot --command-timeout 2400 --budget-seconds 2400 -- sh -eu -c '
   xcodebuild test-without-building -scheme MyApp -destination "id=$SIM_MANAGER_UDID"
 '
 sim-manager run android --session my-session --project /absolute/project/path --boot -- sh -eu -c '

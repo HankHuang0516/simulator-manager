@@ -59,7 +59,7 @@ def parser():
             s.add_argument('--max-requeues',type=int,default=3)
             s.add_argument('--boot', action='store_true')
             s.add_argument('--boot-timeout', type=float, default=180)
-            s.add_argument('--command-timeout', type=float, default=600)
+            s.add_argument('--command-timeout', type=float, default=2400)
             # Commands must follow --. Parse separately so options before -- work.
     for name in ('release','renew','boot','repair-android-target'):
         s = subs.add_parser(name, parents=[common])

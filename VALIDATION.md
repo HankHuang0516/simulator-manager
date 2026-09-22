@@ -1,6 +1,10 @@
 # Validation report
 
-Validated through September 22, 2026. Current version 3.4.1; earlier sections preserve historical validation evidence.
+Validated through September 23, 2026. Current version 3.5.0; earlier sections preserve historical validation evidence.
+
+## Version 3.5.0 — 40-minute occupancy budget
+
+Version 3.5.0 raises the default lease, total occupancy budget, CLI command timeout, and Tool schema/runtime ceiling to 2400 seconds. The same clock covers private environment creation, boot, installation, validation, soak time, and artifact export. A 1800-second soak can therefore complete when no other task is waiting. FIFO fairness remains unchanged: once another task waits, the active task must checkpoint at the 120-second slice boundary (or within the bounded late checkpoint window), release without powering off the device, and requeue remaining work. Tests verify the published Tool schema accepts the 2400-second ceiling, an 1800-second command timeout reaches the supervised CLI, and values above 2400 seconds are rejected. The full suite contains 114 tests.
 
 ## Local environment
 

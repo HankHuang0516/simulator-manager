@@ -30,6 +30,14 @@ class MCPServerTests(unittest.TestCase):
             "simulator_manager_guidance",
         })
 
+    def test_run_schema_allows_forty_minute_occupancy(self):
+        run_tool = next(tool for tool in MCP.TOOLS if tool["name"] == "simulator_manager_run")
+        props = run_tool["inputSchema"]["properties"]
+        self.assertEqual(props["command_timeout_seconds"]["default"], 2400)
+        self.assertEqual(props["command_timeout_seconds"]["maximum"], 2400)
+        self.assertEqual(props["budget_seconds"]["default"], 2400)
+        self.assertEqual(props["budget_seconds"]["maximum"], 2400)
+
     def test_enable_registers_long_lived_mcp_owner_and_returns_guidance(self):
         completed = subprocess.CompletedProcess([], 0, '{"shared_mode":true}\n', "")
         with mock.patch.object(MCP, "cli_path", return_value="/tmp/sim-manager"), \
@@ -46,13 +54,21 @@ class MCPServerTests(unittest.TestCase):
              mock.patch.object(MCP.subprocess, "run", return_value=completed) as run:
             result = MCP.invoke_tool("simulator_manager_run", {
                 "platform": "ios", "session": "task-1", "project": "/tmp/app",
-                "command": ["xcodebuild", "test"], "budget_seconds": 90,
+                "command": ["xcodebuild", "test"], "command_timeout_seconds": 1800,
+                "budget_seconds": 2400,
             })
         self.assertTrue(result["released"])
         argv = run.call_args.args[0]
         self.assertEqual(argv[-3:], ["--", "xcodebuild", "test"])
         self.assertIn("--boot", argv)
+        self.assertEqual(argv[argv.index("--command-timeout") + 1], "1800.0")
+        self.assertEqual(argv[argv.index("--budget-seconds") + 1], "2400.0")
         self.assertIs(run.call_args.kwargs["shell"], False)
+
+    def test_run_rejects_occupancy_above_forty_minutes(self):
+        base = {"platform": "ios", "session": "s", "project": "/tmp/p", "command": ["true"]}
+        with self.assertRaisesRegex(MCP.ToolError, "between 0.001 and 2400"):
+            MCP.invoke_tool("simulator_manager_run", {**base, "budget_seconds": 2401})
 
     def test_run_rejects_shell_string_and_unsafe_requeue(self):
         base = {"platform": "android", "session": "s", "project": "/tmp/p"}

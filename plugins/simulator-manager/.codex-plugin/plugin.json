@@ -1,6 +1,6 @@
 {
   "name": "simulator-manager",
-  "version": "3.4.1",
+  "version": "3.5.0",
   "description": "Coordinate iOS Simulators and Android Emulators across Codex sessions with private environments, FIFO fallback, warm release, and one shared dashboard.",
   "author": {
     "name": "Hank Huang",

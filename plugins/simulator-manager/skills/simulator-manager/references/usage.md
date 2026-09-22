@@ -1,6 +1,6 @@
 # Policy, manual leases and recovery
 
-`run` is preferred: one total clock includes device creation, boot and validation. Default hard use budget 600 seconds, at most 3 actual extensions, waiter slice 120 seconds and checkpoint window 10 seconds. Renew cannot revive expiry or extend hard/yield deadlines. `--budget-seconds` can shorten the request. `--foreground` serializes desktop automation without nested GUI leases.
+`run` is preferred: one total clock includes device creation, boot, installation, validation and artifact export. Default hard use budget is 2400 seconds (40 minutes), at most 3 actual extensions, waiter slice 120 seconds and checkpoint window 10 seconds. A 1800-second soak can finish inside the hard budget when no waiter arrives; a waiting task still triggers the 120-second safe-yield rule. Renew cannot revive expiry or extend hard/yield deadlines. `--budget-seconds` can shorten the request. `--foreground` serializes desktop automation without nested GUI leases.
 
 Exit 75 requires finishing/checkpointing, release and a fresh FIFO-tail request for remaining steps. `--requeue-on-yield` is only for explicitly restartable commands; arbitrary SDK side effects cannot be rolled back automatically. Cancellation sends SIGTERM then SIGKILL to the registered owned group, never the session owner. Surviving uninterruptible work stays reserved until confirmed dead.
 

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "global_capacity": 2,
-  "lease_seconds": 900,
+  "lease_seconds": 2400,
   "poll_seconds": 0.25,
   "pools": {
     "ios": {
@@ -61,7 +61,7 @@
   },
   "mode": "dynamic",
   "policy": {
-    "max_hold_seconds": 600,
+    "max_hold_seconds": 2400,
     "max_renewals": 3,
     "waiter_slice_seconds": 120,
     "yield_grace_seconds": 10

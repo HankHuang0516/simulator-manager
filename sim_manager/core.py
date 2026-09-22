@@ -104,7 +104,7 @@ def normalize_config(c):
     if c['mode'] not in ('dynamic','traditional'):
         raise ManagerError('mode must be dynamic or traditional')
     defaults = {
-        'policy':{'max_hold_seconds':600,'max_renewals':3,'waiter_slice_seconds':120,'yield_grace_seconds':10},
+        'policy':{'max_hold_seconds':2400,'max_renewals':3,'waiter_slice_seconds':120,'yield_grace_seconds':10},
         'dynamic':{'max_parallel':3,'max_environments':24,'idle_shutdown_seconds':120},
         'monitor':{'sample_seconds':2,'low_memory_percent':20,'critical_memory_percent':10,
                    'recovery_memory_percent':30,'high_load_ratio':.85,'critical_load_ratio':1.25,
@@ -122,7 +122,7 @@ def normalize_config(c):
                 positive(c[section][key],section+'.'+key,key=='max_renewals')
                 if key in ('max_renewals','max_parallel','max_environments','bad_samples','good_samples') and not isinstance(c[section][key],int):
                     raise ManagerError(section+'.'+key+' must be an integer')
-    c.setdefault('lease_seconds', 900)
+    c.setdefault('lease_seconds', 2400)
     c.setdefault('poll_seconds', .25)
     c.setdefault('global_capacity', 2)
     positive(c['lease_seconds'], 'lease_seconds')
@@ -234,7 +234,7 @@ class Manager:
                 if name not in columns:
                     self.db.execute('ALTER TABLE leases ADD COLUMN '+name+' '+definition)
             columns = {r['name'] for r in self.db.execute('PRAGMA table_info(queue)')}
-            for name, definition in [('requested_mode',"TEXT NOT NULL DEFAULT 'auto'"),('foreground','INTEGER NOT NULL DEFAULT 0'),('budget','REAL NOT NULL DEFAULT 600')]:
+            for name, definition in [('requested_mode',"TEXT NOT NULL DEFAULT 'auto'"),('foreground','INTEGER NOT NULL DEFAULT 0'),('budget','REAL NOT NULL DEFAULT 2400')]:
                 if name not in columns:
                     self.db.execute('ALTER TABLE queue ADD COLUMN '+name+' '+definition)
             columns = {r['name'] for r in self.db.execute('PRAGMA table_info(events)')}

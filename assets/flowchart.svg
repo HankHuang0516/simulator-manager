@@ -100,8 +100,8 @@
 <text x="87" y="1485" font-size="18" fill="#f8dfad" font-weight="650">Never evict an active session.</text>
 <rect x="1480" y="780" width="300" height="750" rx="20" fill="#202936" stroke="#647181" stroke-width="1.4" filter="url(#shadow)"/>
 <text x="1505" y="824" font-size="16" fill="#e9c283" font-weight="750">OCCUPANCY POLICY</text>
-<text x="1505" y="881" font-size="25" fill="#f8dfad" font-weight="650">600 seconds total</text>
-<text x="1505" y="916" font-size="17" fill="#b8c8d8" font-weight="400">Creation + boot + validation</text>
+<text x="1505" y="881" font-size="25" fill="#f8dfad" font-weight="650">2400 seconds total</text>
+<text x="1505" y="916" font-size="17" fill="#b8c8d8" font-weight="400">Creation + boot + work + export</text>
 <text x="1505" y="983" font-size="23" fill="#f8dfad" font-weight="650">3 renewal extensions</text>
 <text x="1505" y="1018" font-size="17" fill="#b8c8d8" font-weight="400">Never extend the hard limit.</text>
 <text x="1505" y="1088" font-size="23" fill="#f8dfad" font-weight="650">Safe yielding</text>
