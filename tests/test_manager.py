@@ -173,8 +173,12 @@ class ManagerTests(unittest.TestCase):
         m.close()
 
     def test_expired_live_owner_is_not_stolen_and_must_requeue(self):
-        lease = self.acquire(ttl=.05)
-        time.sleep(.08)
+        lease = self.acquire(ttl=1)
+        m = self.manager()
+        with m.transaction():
+            m.db.execute('UPDATE leases SET expires=?,hard_expires=? WHERE token=?',
+                         (time.time()-1,time.time()-1,lease['token']))
+        m.close()
         s = self.status()
         self.assertTrue(s['leases'][0]['expired'])
         self.assertEqual(self.cli('acquire','ios','--timeout',0).returncode,3)
