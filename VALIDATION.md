@@ -1,6 +1,6 @@
 # Validation report
 
-Validated through September 22, 2026. Current version 3.3.0; earlier sections preserve historical validation evidence.
+Validated through September 22, 2026. Current version 3.3.1; earlier sections preserve historical validation evidence.
 
 ## Local environment
 
@@ -71,6 +71,8 @@ The app now embeds a dedicated 1024 px RGBA routing icon and a complete macOS IC
 Recent Activity now persists and displays task/session identity, project, platform, resource, start/end times and total occupancy for completed allocations; active allocations show a live elapsed duration. Migration adds nullable event fields without discarding existing history, and display-time backfill uses retained session/environment metadata for older rows. A scheduler regression verifies the completed release record. The dashboard bundle regression also verifies that the custom ICNS is copied and declared in `Info.plist`.
 
 All 106 tests pass locally. Both Skill copies validate, Python/shell/JavaScript static checks and `git diff --check` pass, and the native SwiftUI bundle compiles for macOS 13 with the icon resource present. The localized website was visually inspected in both Traditional Chinese and English with the new favicon, navigation mark and hero icon. No simulator or emulator was booted, stopped or reassigned for this dashboard and activity-history change.
+
+Version 3.3.1 fixes the fresh/managed installation path exposed by the live upgrade: `install.py` now copies the tracked `assets` directory beside the installed dashboard source. The isolated-install regression verifies both the ICNS and PNG master survive initial install and upgrade, allowing `sim-manager ui --install-app` to build from the managed prefix.
 
 ## Native dashboard
 

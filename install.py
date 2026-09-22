@@ -44,7 +44,7 @@ def main():
         if (prefix/'sim_manager/watchdog.py').exists():
             subprocess.run([sys.executable,str(source/'bin/sim-manager'),'watch','--stop','--state-dir',str(state),'--json'],check=True)
     prefix.mkdir(parents=True, exist_ok=True)
-    for item in ('sim_manager','bin','config','skill','dashboard'):
+    for item in ('sim_manager','bin','config','skill','dashboard','assets'):
         shutil.copytree(source/item, prefix/item, dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
     # Pin the interpreter used during installation, independent of future PATH.

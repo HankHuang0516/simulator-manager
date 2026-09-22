@@ -311,6 +311,8 @@ class InstallTests(unittest.TestCase):
             self.assertEqual(p.returncode,0,p.stdout+p.stderr)
             self.assertEqual(config.read_bytes(),before)
             self.assertTrue((base/'skills/simulator-manager/SKILL.md').is_file())
+            self.assertTrue((base/'install/assets/SimulatorManager.icns').is_file())
+            self.assertTrue((base/'install/assets/simulator-manager-app-icon.png').is_file())
             p=subprocess.run(args,capture_output=True,text=True)
             self.assertNotEqual(p.returncode,0)
 
