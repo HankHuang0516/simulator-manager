@@ -1,6 +1,6 @@
 {
   "name": "simulator-manager",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "description": "Coordinate iOS Simulators and Android Emulators across Codex sessions with private environments, FIFO fallback, warm release, and one shared dashboard.",
   "author": {
     "name": "Hank Huang",
@@ -26,7 +26,8 @@
       "Enable Simulator Manager for this project",
       "Run this UI test with a managed simulator",
       "Show the shared simulator queue and host pressure",
-      "Check this task for simulator-sharing guidance"
+      "Check this task for simulator-sharing guidance",
+      "Check whether any registered task is bypassing simulator sharing"
     ],
     "brandColor": "#0A84FF",
     "composerIcon": "./assets/icon.svg",

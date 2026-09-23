@@ -56,6 +56,10 @@ struct ComplianceFinding: Decodable, Identifiable {
     let kind: String; let first_seen: Double; let last_seen: Double; let active: Int; let guidance: String
     var id: String { fingerprint }
 }
+struct AuditResult: Decodable {
+    let observed_at: Double; let registered_sessions: Int; let observable_sessions: Int
+    let active_findings: Int; let findings: [ComplianceFinding]; let enforcement: String; let safety: String
+}
 struct Policy: Decodable { let max_renewals: Int }
 struct Snapshot: Decodable { let policy: Policy; let scheduler: Scheduler; let leases: [Lease]; let queue: [Waiter]; let sessions: [Session]; let environments: [Environment]; let events: [Event]; let compliance: [ComplianceFinding]?; let config_error: String? }
 
@@ -99,9 +103,34 @@ func readStatus(cli: String, state: String) throws -> Snapshot {
     return try JSONDecoder().decode(Snapshot.self, from: bytes.value())
 }
 
+func readAudit(cli: String, state: String) throws -> AuditResult {
+    let p = Process(); p.executableURL = URL(fileURLWithPath:cli); p.arguments = ["audit","--state-dir",state,"--json"]
+    p.currentDirectoryURL = URL(fileURLWithPath:cli).deletingLastPathComponent()
+    let out = Pipe(), err = Pipe(), bytes = Bytes(), errors = Bytes()
+    p.standardOutput = out; p.standardError = err
+    try p.run()
+    let reads = DispatchGroup()
+    reads.enter(); DispatchQueue.global().async { bytes.append(out.fileHandleForReading.readDataToEndOfFile()); reads.leave() }
+    reads.enter(); DispatchQueue.global().async { errors.append(err.fileHandleForReading.readDataToEndOfFile()); reads.leave() }
+    let deadline = Date().addingTimeInterval(8)
+    while p.isRunning && Date() < deadline { Thread.sleep(forTimeInterval:0.05) }
+    if p.isRunning {
+        p.terminate()
+        let grace = Date().addingTimeInterval(1)
+        while p.isRunning && Date() < grace { Thread.sleep(forTimeInterval:0.05) }
+        if p.isRunning { kill(p.processIdentifier,SIGKILL) }
+        p.waitUntilExit(); throw NSError(domain:"Monitor scan timed out",code:1)
+    }
+    p.waitUntilExit()
+    guard reads.wait(timeout:.now()+2) == .success else { throw NSError(domain:"Monitor stream did not finish",code:1) }
+    guard p.terminationStatus == 0 else { throw NSError(domain:String(data:errors.value(),encoding:.utf8) ?? "Monitor unavailable",code:Int(p.terminationStatus)) }
+    return try JSONDecoder().decode(AuditResult.self,from:bytes.value())
+}
+
 @MainActor final class Model: ObservableObject {
     @Published var snapshot: Snapshot?; @Published var error: String?; @Published var updated: Date?
-    @Published var pinned = true; @Published var selection = "Overview"; @Published var showGuide = false
+    @Published var pinned = true; @Published var selection = "Overview"; @Published var showGuide = false; @Published var showMonitor = false
+    @Published var auditResult: AuditResult?; @Published var auditError: String?; @Published var auditInFlight = false
     @Published var language: AppLanguage { didSet { UserDefaults.standard.set(language.rawValue,forKey:"SimulatorManagerLanguage") } }
     var refreshInFlight = false
     let cli: String; let state: String; let demo: String?
@@ -135,6 +164,27 @@ func readStatus(cli: String, state: String) throws -> Snapshot {
         switch result {
         case .success(let s): snapshot = s; error = s.config_error; updated = Date()
         case .failure(let e): error = e.localizedDescription
+        }
+    }
+    func auditNow() async {
+        guard !auditInFlight else { return }
+        showMonitor = true; auditInFlight = true; auditError = nil
+        defer { auditInFlight = false }
+        if demo != nil, let s = snapshot {
+            let findings = s.compliance ?? []
+            auditResult = AuditResult(observed_at:Date().timeIntervalSince1970,registered_sessions:s.sessions.count,
+                                      observable_sessions:s.sessions.count,active_findings:findings.count,
+                                      findings:findings,enforcement:"guidance-only",
+                                      safety:"No process, task, simulator, emulator, or adb server is stopped by compliance coaching.")
+            return
+        }
+        let cli = self.cli, state = self.state
+        let result = await Task.detached { () -> Result<AuditResult,Error> in
+            do { return .success(try readAudit(cli:cli,state:state)) } catch { return .failure(error) }
+        }.value
+        switch result {
+        case .success(let report): auditResult = report; await refresh()
+        case .failure(let error): auditError = error.localizedDescription
         }
     }
 }
@@ -176,6 +226,59 @@ struct QuickStartGuide: View {
                 }.buttonStyle(.borderedProminent).tint(lavender)
             }
         }.padding(28).frame(width:440).foregroundStyle(ink).background(LinearGradient(colors:[Color(red:0.95,green:0.96,blue:1),Color(red:0.97,green:0.99,blue:0.98)],startPoint:.topLeading,endPoint:.bottomTrailing))
+    }
+}
+
+struct BypassMonitor: View {
+    @ObservedObject var model: Model
+    var body: some View {
+        let zh = model.usesChinese
+        let report = model.auditResult
+        let active = report?.findings.filter { $0.active == 1 } ?? []
+        let covered = report?.observable_sessions ?? 0
+        let registered = report?.registered_sessions ?? 0
+        let gap = max(0,registered-covered)
+        VStack(spacing:0) {
+            HStack(spacing:12) {
+                ZStack { Circle().fill((active.isEmpty ? mint : Color.orange).opacity(0.14)).frame(width:44,height:44); Image(systemName:active.isEmpty ? "eye.circle.fill" : "exclamationmark.shield.fill").font(.system(size:22)).foregroundStyle(active.isEmpty ? mint : .orange) }
+                VStack(alignment:.leading,spacing:3) { Text(tr("Bypass monitor","繞道監視",zh)).font(.system(size:20,weight:.semibold,design:.rounded)); Text(tr("Read-only inspection of registered task process trees","只讀檢查已登記 task 的程序關係",zh)).font(.system(size:10)).foregroundStyle(.secondary) }
+                Spacer()
+                Button { model.showMonitor=false } label:{ Image(systemName:"xmark").foregroundStyle(.secondary).frame(width:28,height:28).background(.white.opacity(0.65),in:Circle()) }.buttonStyle(.plain)
+            }.padding(22)
+            ScrollView {
+                VStack(alignment:.leading,spacing:14) {
+                    if model.auditInFlight {
+                        HStack(spacing:10) { ProgressView().controlSize(.small); Text(tr("Inspecting current simulator and emulator access…","正在檢查目前的模擬器使用狀況⋯",zh)).font(.system(size:12,weight:.medium)) }.padding(16).frame(maxWidth:.infinity,alignment:.leading).background(.white.opacity(0.65),in:RoundedRectangle(cornerRadius:16))
+                    } else if let error = model.auditError {
+                        Label(error,systemImage:"exclamationmark.triangle.fill").font(.system(size:11)).foregroundStyle(.orange).padding(16).frame(maxWidth:.infinity,alignment:.leading).background(.orange.opacity(0.08),in:RoundedRectangle(cornerRadius:16))
+                    } else if let report {
+                        VStack(alignment:.leading,spacing:8) {
+                            Label(active.isEmpty ? tr("No attributable bypass detected now","目前未偵測到可歸因的繞道使用",zh) : tr("Managed-lane bypass detected","偵測到繞過管理通道",zh),systemImage:active.isEmpty ? "checkmark.shield.fill" : "exclamationmark.shield.fill").font(.system(size:14,weight:.semibold)).foregroundStyle(active.isEmpty ? mint : .orange)
+                            Text(active.isEmpty ? tr("No registered, observable task is currently using a simulator or emulator outside a matching lease.","目前沒有已登記且可觀察的 task 在對應租約外使用模擬器。",zh) : tr("These actions can cause device contention, cross-task data corruption, unreliable tests, or ADB disruption.","這些行為可能造成裝置互搶、跨 task 資料污染、測試結果不可靠或 ADB 中斷。",zh)).font(.system(size:11)).foregroundStyle(.secondary).lineSpacing(2)
+                        }.padding(16).background((active.isEmpty ? mint : Color.orange).opacity(0.08),in:RoundedRectangle(cornerRadius:17)).overlay(RoundedRectangle(cornerRadius:17).stroke((active.isEmpty ? mint : Color.orange).opacity(0.18)))
+                        HStack(spacing:8) { Metric(name:tr("Findings","違規",zh),value:String(active.count),icon:"exclamationmark.shield"); Metric(name:tr("Observable","可觀察",zh),value:"\(covered)/\(registered)",icon:"eye"); Metric(name:tr("Coverage gaps","覆蓋缺口",zh),value:String(gap),icon:"questionmark.circle") }
+                        if gap > 0 || registered == 0 {
+                            VStack(alignment:.leading,spacing:7) {
+                                Label(tr("Coverage boundary","監視範圍限制",zh),systemImage:"scope").font(.system(size:12,weight:.semibold)).foregroundStyle(lavender)
+                                Text(registered == 0 ? tr("No task has registered with Simulator Manager. Enable the Tool in each Codex task before relying on attribution.","目前沒有 task 登記 Simulator Manager。每個 Codex task 都必須先啟用 Tool，才能可靠歸因。",zh) : tr("Process trees for \(gap) registered tasks are not currently observable. Unregistered or unavailable tasks cannot be safely attributed, so this result is not proof that the entire Mac has no unmanaged activity.","有 \(gap) 個已登記 task 的程序關係目前無法觀察；未登記或無法觀察的 task 不能安全歸因，因此這個結果不代表整台 Mac 絕對沒有繞道活動。",zh)).font(.system(size:10)).foregroundStyle(.secondary).lineSpacing(2)
+                            }.padding(14).background(lavender.opacity(0.07),in:RoundedRectangle(cornerRadius:16))
+                        }
+                        if !active.isEmpty {
+                            SectionTitle(title:tr("Attributed findings","已歸因的違規",zh),count:active.count)
+                            ForEach(active) { finding in
+                                VStack(alignment:.leading,spacing:8) {
+                                    HStack { Image(systemName:"exclamationmark.triangle.fill").foregroundStyle(.orange); VStack(alignment:.leading,spacing:2) { Text(projectName(finding.project)).font(.system(size:12,weight:.semibold)); Text("\(finding.platform.uppercased()) · \(finding.kind.replacingOccurrences(of:"-",with:" ")) · Task \(finding.session)").font(.system(size:9,design:.monospaced)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }; Spacer() }
+                                    Text(guidanceText(finding,zh)).font(.system(size:10)).foregroundStyle(.secondary).lineSpacing(2)
+                                }.padding(14).background(.orange.opacity(0.08),in:RoundedRectangle(cornerRadius:16))
+                            }
+                        }
+                        Label(tr("This monitor records bounded guidance only. It never stops a task, simulator, emulator, or ADB server.","監視器只記錄有限的教學指引，不會停止 task、模擬器、Android Emulator 或 ADB。",zh),systemImage:"hand.raised.fill").font(.system(size:10)).foregroundStyle(.secondary).padding(14).frame(maxWidth:.infinity,alignment:.leading).background(.white.opacity(0.55),in:RoundedRectangle(cornerRadius:16))
+                        Text("\(tr("Checked","檢查於",zh)) \(Date(timeIntervalSince1970:report.observed_at).formatted(date:.omitted,time:.standard))").font(.system(size:9)).foregroundStyle(.secondary).frame(maxWidth:.infinity,alignment:.trailing)
+                    }
+                }.padding(.horizontal,22).padding(.bottom,18)
+            }
+            HStack { Button { Task { await model.auditNow() } } label:{ Label(tr("Scan again","再次監視",zh),systemImage:"arrow.clockwise").frame(maxWidth:.infinity) }.buttonStyle(.borderedProminent).tint(lavender).disabled(model.auditInFlight) }.padding(18).background(.white.opacity(0.45))
+        }.frame(width:500,height:620).foregroundStyle(ink).background(LinearGradient(colors:[Color(red:0.95,green:0.96,blue:1),Color(red:0.97,green:0.99,blue:0.98)],startPoint:.topLeading,endPoint:.bottomTrailing)).preferredColorScheme(.light)
     }
 }
 
@@ -320,6 +423,7 @@ struct Dashboard: View {
                 ZStack { RoundedRectangle(cornerRadius: 13).fill(LinearGradient(colors: [lavender, Color(red:0.54,green:0.66,blue:0.99)], startPoint:.topLeading,endPoint:.bottomTrailing)); Image(systemName:"square.stack.3d.up.fill").font(.system(size:19)).foregroundStyle(.white) }.frame(width: 39,height: 39)
                 VStack(alignment:.leading,spacing:3) { Text("Simulator Manager").font(.system(size:17,weight:.semibold,design:.rounded)); HStack(spacing:5) { Circle().fill(model.error == nil && model.updated != nil ? mint : Color.orange).frame(width:5,height:5); Text(model.demo != nil ? tr("Preview · sample data","預覽 · 範例資料",zh) : model.error == nil && model.updated != nil ? tr("Live shared scheduling","即時共用排程",zh) : tr("Connecting to manager","正在連接管理器",zh)).font(.system(size:10)).foregroundStyle(.secondary) } }
                 Spacer()
+                Button { Task { await model.auditNow() } } label: { HStack(spacing:5) { Image(systemName:"eye.fill").font(.system(size:10,weight:.semibold)); Text(tr("Monitor","監視",zh)).font(.system(size:10,weight:.semibold)) }.foregroundStyle(model.snapshot?.compliance?.isEmpty == false ? Color.orange : mint).padding(.horizontal,9).frame(height:27).background(.white.opacity(0.68),in:Capsule()) }.buttonStyle(.plain).help(tr("Check for simulator use outside managed leases","檢查是否有繞過租約使用模擬器",zh)).accessibilityIdentifier("bypass-monitor-button")
                 LanguagePicker(model:model)
                 Button { model.showGuide = true } label: { Image(systemName:"questionmark").font(.system(size:12,weight:.semibold)).foregroundStyle(lavender).frame(width:27,height:27).background(.white.opacity(0.6),in:Circle()) }.buttonStyle(.plain).help(tr("Open the Quick Start guide","開啟 Quick Start 教學",zh))
                 Button { model.pinned.toggle(); NSApp.windows.first?.level = model.pinned ? .floating : .normal } label: { Image(systemName: model.pinned ? "pin.fill" : "pin").font(.system(size:12)).foregroundStyle(model.pinned ? lavender : .secondary).frame(width:27,height:27).background(.white.opacity(0.6),in:Circle()) }.buttonStyle(.plain).help(tr("Keep window above other apps","讓視窗保持在其他 App 上方",zh))
@@ -365,6 +469,7 @@ struct Dashboard: View {
             HStack { Text(tr("VIEW ONLY","僅供檢視",zh)).font(.system(size:8,weight:.semibold)).tracking(1).foregroundStyle(lavender); Spacer(); if let updated = model.updated { Text("\(tr("Updated","更新於",zh)) \(updated.formatted(date:.omitted,time:.standard))").font(.system(size:9)).foregroundStyle(.secondary) }; Button { Task { await model.refresh() } } label:{ Image(systemName:"arrow.clockwise").font(.system(size:11)).foregroundStyle(lavender) }.buttonStyle(.plain).help(tr("Refresh","重新整理",zh)) }.padding(.horizontal,21).padding(.vertical,13).background(.white.opacity(0.45))
         }.foregroundStyle(ink).background(LinearGradient(colors:[Color(red:0.94,green:0.95,blue:1),Color(red:0.96,green:0.98,blue:0.98)],startPoint:.topLeading,endPoint:.bottomTrailing)).background(.ultraThinMaterial).clipShape(RoundedRectangle(cornerRadius:26)).preferredColorScheme(.light)
         .sheet(isPresented:$model.showGuide) { QuickStartGuide(model:model) }
+        .sheet(isPresented:$model.showMonitor) { BypassMonitor(model:model) }
         .task { while !Task.isCancelled { await model.refresh(); try? await Task.sleep(nanoseconds:2_000_000_000) } }
     }
 }

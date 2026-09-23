@@ -1,6 +1,12 @@
 # Validation report
 
-Validated through September 23, 2026. Current version 3.5.0; earlier sections preserve historical validation evidence.
+Validated through September 23, 2026. Current version 3.6.0; earlier sections preserve historical validation evidence.
+
+## Version 3.6.0 — one-click bypass monitor
+
+The native dashboard now exposes a visible **Monitor** button that runs the existing compliance audit as a read-only inspection. Its report separates active findings that can be reliably attributed to a registered, observable Codex task from registration or process-observability gaps. A clear result therefore means no attributable bypass was observed inside the covered task trees; the UI explicitly avoids claiming that the entire Mac is free of unmanaged activity. Findings identify the task, project, platform and action category, then provide the managed replacement and warm-release guidance. The monitor never stops a task, simulator, emulator or ADB server.
+
+The macOS 13 SwiftUI target compiles successfully, and a native screenshot confirmed that the localized Monitor control fits the dashboard header without colliding with the language, guide, pin or close controls. Automated coverage includes the UI command contract and safety copy plus an unobservable-registration regression. The complete suite contains 116 tests.
 
 ## Version 3.5.0 — 40-minute occupancy budget
 

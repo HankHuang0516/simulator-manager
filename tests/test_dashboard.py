@@ -39,6 +39,14 @@ class DashboardHandoverTests(unittest.TestCase):
             self.assertIn('revealExistingDashboard',source.read_text())
             self.assertIn('DistributedNotificationCenter.default()',source.read_text())
 
+    def test_dashboard_has_read_only_bypass_monitor_with_coverage_boundary(self):
+        source = (Path(__file__).parents[1]/'dashboard/SimulatorManager.swift').read_text()
+        self.assertIn('accessibilityIdentifier("bypass-monitor-button")', source)
+        self.assertIn('p.arguments = ["audit","--state-dir",state,"--json"]', source)
+        self.assertIn('observable_sessions', source)
+        self.assertIn('Unregistered or unavailable tasks cannot be safely attributed', source)
+        self.assertIn('never stops a task, simulator, emulator, or ADB server', source)
+
     def test_process_inventory_matches_only_exact_managed_executable_path(self):
         with tempfile.TemporaryDirectory(prefix='dashboard app ') as temporary:
             app = Path(temporary)/'Simulator Manager.app'

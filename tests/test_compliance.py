@@ -86,6 +86,17 @@ class ComplianceTests(unittest.TestCase):
         self.assertEqual(result['findings'][0]['active'], 0)
         self.assertEqual(self.manager.status()['compliance'], [])
 
+    def test_unobservable_registration_is_reported_as_coverage_gap(self):
+        with self.manager.transaction():
+            self.manager.db.execute(
+                "UPDATE sessions SET owner_pid=?,owner_start=? WHERE session=?",
+                (999999, 'missing-process', 'task-1'))
+        with patch.object(compliance, '_processes', return_value={}):
+            result = compliance.audit(self.manager)
+        self.assertEqual(result['registered_sessions'], 1)
+        self.assertEqual(result['observable_sessions'], 0)
+        self.assertEqual(result['active_findings'], 0)
+
 
 if __name__ == '__main__':
     unittest.main()
