@@ -97,6 +97,41 @@ class ComplianceTests(unittest.TestCase):
         self.assertEqual(result['observable_sessions'], 0)
         self.assertEqual(result['active_findings'], 0)
 
+    def test_shared_owner_is_a_coverage_gap_even_when_one_label_has_a_lease(self):
+        self.manager.enable('task-2', '/tmp/other-project', os.getpid())
+        lease = self.manager.acquire('ios', 'task-2', '/tmp/other-project', os.getpid(), timeout=0)
+        processes = {os.getpid(): (1, 'codex host'),
+                     43220: (os.getpid(), 'xcodebuild test -destination id=ABC')}
+        try:
+            with patch.object(compliance, '_processes', return_value=processes):
+                result = compliance.audit(self.manager)
+                targeted = compliance.audit(self.manager, 'task-1')
+            self.assertEqual(result['registered_sessions'], 2)
+            self.assertEqual(result['observable_sessions'], 2)
+            self.assertEqual(result['ambiguous_sessions'], 2)
+            self.assertEqual(result['active_findings'], 0)
+            self.assertEqual(targeted['ambiguous_sessions'], 1)
+            self.assertEqual(targeted['active_findings'], 0)
+            self.assertEqual(self.manager.status()['compliance'], [])
+        finally:
+            self.manager.release(lease['token'])
+
+    def test_targeted_audit_does_not_clear_other_tasks_finding(self):
+        self.manager.enable('task-2', '/tmp/other-project', os.getpid())
+        with self.manager.transaction():
+            self.manager.db.execute(
+                "UPDATE sessions SET owner_pid=?,owner_start=? WHERE session=?",
+                (999999, 'synthetic-process', 'task-2'))
+        both = {os.getpid(): (1, 'task-1'), 43221: (os.getpid(), 'xcrun simctl boot ABC'),
+                999999: (1, 'task-2'), 43222: (999999, 'adb -s emulator-5554 shell getprop')}
+        with patch.object(compliance, 'process_alive', return_value=True), \
+             patch.object(compliance, '_processes', return_value=both):
+            first = compliance.audit(self.manager)
+            self.assertEqual(first['active_findings'], 2)
+            second = compliance.audit(self.manager, 'task-1')
+        self.assertEqual(second['active_findings'], 1)
+        self.assertEqual(len(self.manager.status()['compliance']), 2)
+
 
 if __name__ == '__main__':
     unittest.main()

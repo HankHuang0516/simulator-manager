@@ -113,17 +113,25 @@ def _fingerprint(session, platform, kind):
 def audit(manager, session=None):
     """Observe registered process trees and persist bounded coaching findings."""
     now, processes, detected = time.time(), _processes(), {}
-    sessions = manager.db.execute('SELECT * FROM sessions' +
-                                  (' WHERE session=?' if session else ''),
-                                  (session,) if session else ()).fetchall()
+    # A Codex host process can register more than one task label. Resolve scope
+    # against every registration before attributing a child to any one label.
+    all_sessions = manager.db.execute('SELECT * FROM sessions').fetchall()
+    sessions = [row for row in all_sessions if not session or row['session'] == session]
     leases = {(row['session'], row['pool']) for row in manager.db.execute('SELECT session,pool FROM leases')}
-    observable = 0
-    for row in sessions:
+    scopes, pid_owners = {}, {}
+    for row in all_sessions:
         owner = row['owner_pid']
         if not owner or not boot_matches(row['boot'], manager.machine_boot) or not process_alive(owner, row['owner_start']):
             continue
-        observable += 1
-        for pid in _descendants(processes, owner):
+        descendants = _descendants(processes, owner)
+        scopes[row['session']] = descendants
+        for pid in descendants | {owner}:
+            pid_owners.setdefault(pid, set()).add(row['session'])
+    ambiguous = {label for labels in pid_owners.values() if len(labels) > 1 for label in labels}
+    for row in sessions:
+        for pid in scopes.get(row['session'], ()):
+            if len(pid_owners[pid]) != 1:
+                continue
             classified = _classify(processes.get(pid, (0, ''))[1])
             if not classified:
                 continue
@@ -146,7 +154,9 @@ def audit(manager, session=None):
                  SHUTDOWN_GUIDANCE[platform] if kind == 'unsafe-shutdown' else GUIDANCE[platform]))
             if not existing or not existing['active']:
                 manager.event('compliance-guidance', session=row['session'], detail=kind)
-        active = manager.db.execute('SELECT fingerprint FROM compliance_findings WHERE active=1').fetchall()
+        active = manager.db.execute('SELECT fingerprint FROM compliance_findings WHERE active=1' +
+                                    (' AND session=?' if session else ''),
+                                    (session,) if session else ()).fetchall()
         for row in active:
             if row['fingerprint'] not in detected:
                 manager.db.execute('UPDATE compliance_findings SET active=0,last_seen=? WHERE fingerprint=?',
@@ -164,7 +174,8 @@ def audit(manager, session=None):
     return {
         'observed_at': now,
         'registered_sessions': len(sessions),
-        'observable_sessions': observable,
+        'observable_sessions': sum(row['session'] in scopes for row in sessions),
+        'ambiguous_sessions': sum(row['session'] in ambiguous for row in sessions),
         'active_findings': sum(1 for row in findings if row['active']),
         'findings': findings,
         'enforcement': 'guidance-only',

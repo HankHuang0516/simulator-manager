@@ -58,6 +58,7 @@ struct ComplianceFinding: Decodable, Identifiable {
 }
 struct AuditResult: Decodable {
     let observed_at: Double; let registered_sessions: Int; let observable_sessions: Int
+    let ambiguous_sessions: Int
     let active_findings: Int; let findings: [ComplianceFinding]; let enforcement: String; let safety: String
 }
 struct Policy: Decodable { let max_renewals: Int }
@@ -173,7 +174,7 @@ func readAudit(cli: String, state: String) throws -> AuditResult {
         if demo != nil, let s = snapshot {
             let findings = s.compliance ?? []
             auditResult = AuditResult(observed_at:Date().timeIntervalSince1970,registered_sessions:s.sessions.count,
-                                      observable_sessions:s.sessions.count,active_findings:findings.count,
+                                      observable_sessions:s.sessions.count,ambiguous_sessions:0,active_findings:findings.count,
                                       findings:findings,enforcement:"guidance-only",
                                       safety:"No process, task, simulator, emulator, or adb server is stopped by compliance coaching.")
             return
@@ -235,12 +236,15 @@ struct BypassMonitor: View {
         let zh = model.usesChinese
         let report = model.auditResult
         let active = report?.findings.filter { $0.active == 1 } ?? []
-        let covered = report?.observable_sessions ?? 0
+        let observable = report?.observable_sessions ?? 0
+        let ambiguous = report?.ambiguous_sessions ?? 0
+        let covered = max(0,observable-ambiguous)
         let registered = report?.registered_sessions ?? 0
         let gap = max(0,registered-covered)
+        let monitorColor = active.isEmpty ? (gap > 0 ? lavender : mint) : Color.orange
         VStack(spacing:0) {
             HStack(spacing:12) {
-                ZStack { Circle().fill((active.isEmpty ? mint : Color.orange).opacity(0.14)).frame(width:44,height:44); Image(systemName:active.isEmpty ? "eye.circle.fill" : "exclamationmark.shield.fill").font(.system(size:22)).foregroundStyle(active.isEmpty ? mint : .orange) }
+                ZStack { Circle().fill(monitorColor.opacity(0.14)).frame(width:44,height:44); Image(systemName:active.isEmpty ? (gap > 0 ? "eye.slash.fill" : "eye.circle.fill") : "exclamationmark.shield.fill").font(.system(size:22)).foregroundStyle(monitorColor) }
                 VStack(alignment:.leading,spacing:3) { Text(tr("Bypass monitor","繞道監視",zh)).font(.system(size:20,weight:.semibold,design:.rounded)); Text(tr("Read-only inspection of registered task process trees","只讀檢查已登記 task 的程序關係",zh)).font(.system(size:10)).foregroundStyle(.secondary) }
                 Spacer()
                 Button { model.showMonitor=false } label:{ Image(systemName:"xmark").foregroundStyle(.secondary).frame(width:28,height:28).background(.white.opacity(0.65),in:Circle()) }.buttonStyle(.plain)
@@ -253,14 +257,14 @@ struct BypassMonitor: View {
                         Label(error,systemImage:"exclamationmark.triangle.fill").font(.system(size:11)).foregroundStyle(.orange).padding(16).frame(maxWidth:.infinity,alignment:.leading).background(.orange.opacity(0.08),in:RoundedRectangle(cornerRadius:16))
                     } else if let report {
                         VStack(alignment:.leading,spacing:8) {
-                            Label(active.isEmpty ? tr("No attributable bypass detected now","目前未偵測到可歸因的繞道使用",zh) : tr("Managed-lane bypass detected","偵測到繞過管理通道",zh),systemImage:active.isEmpty ? "checkmark.shield.fill" : "exclamationmark.shield.fill").font(.system(size:14,weight:.semibold)).foregroundStyle(active.isEmpty ? mint : .orange)
-                            Text(active.isEmpty ? tr("No registered, observable task is currently using a simulator or emulator outside a matching lease.","目前沒有已登記且可觀察的 task 在對應租約外使用模擬器。",zh) : tr("These actions can cause device contention, cross-task data corruption, unreliable tests, or ADB disruption.","這些行為可能造成裝置互搶、跨 task 資料污染、測試結果不可靠或 ADB 中斷。",zh)).font(.system(size:11)).foregroundStyle(.secondary).lineSpacing(2)
-                        }.padding(16).background((active.isEmpty ? mint : Color.orange).opacity(0.08),in:RoundedRectangle(cornerRadius:17)).overlay(RoundedRectangle(cornerRadius:17).stroke((active.isEmpty ? mint : Color.orange).opacity(0.18)))
-                        HStack(spacing:8) { Metric(name:tr("Findings","違規",zh),value:String(active.count),icon:"exclamationmark.shield"); Metric(name:tr("Observable","可觀察",zh),value:"\(covered)/\(registered)",icon:"eye"); Metric(name:tr("Coverage gaps","覆蓋缺口",zh),value:String(gap),icon:"questionmark.circle") }
+                            Label(active.isEmpty ? tr("No attributable bypass detected now","目前未偵測到可歸因的繞道使用",zh) : tr("Managed-lane bypass detected","偵測到繞過管理通道",zh),systemImage:active.isEmpty ? (gap > 0 ? "eye.slash.fill" : "checkmark.shield.fill") : "exclamationmark.shield.fill").font(.system(size:14,weight:.semibold)).foregroundStyle(monitorColor)
+                            Text(active.isEmpty ? tr("No uniquely attributable task is currently using a simulator or emulator outside a matching lease.","目前沒有可唯一歸因的 task 在對應租約外使用模擬器。",zh) : tr("These actions can cause device contention, cross-task data corruption, unreliable tests, or ADB disruption.","這些行為可能造成裝置互搶、跨 task 資料污染、測試結果不可靠或 ADB 中斷。",zh)).font(.system(size:11)).foregroundStyle(.secondary).lineSpacing(2)
+                        }.padding(16).background(monitorColor.opacity(0.08),in:RoundedRectangle(cornerRadius:17)).overlay(RoundedRectangle(cornerRadius:17).stroke(monitorColor.opacity(0.18)))
+                        HStack(spacing:8) { Metric(name:tr("Findings","違規",zh),value:String(active.count),icon:"exclamationmark.shield"); Metric(name:tr("Attributable","可歸因",zh),value:"\(covered)/\(registered)",icon:"eye"); Metric(name:tr("Coverage gaps","覆蓋缺口",zh),value:String(gap),icon:"questionmark.circle") }
                         if gap > 0 || registered == 0 {
                             VStack(alignment:.leading,spacing:7) {
                                 Label(tr("Coverage boundary","監視範圍限制",zh),systemImage:"scope").font(.system(size:12,weight:.semibold)).foregroundStyle(lavender)
-                                Text(registered == 0 ? tr("No task has registered with Simulator Manager. Enable the Tool in each Codex task before relying on attribution.","目前沒有 task 登記 Simulator Manager。每個 Codex task 都必須先啟用 Tool，才能可靠歸因。",zh) : tr("Process trees for \(gap) registered tasks are not currently observable. Unregistered or unavailable tasks cannot be safely attributed, so this result is not proof that the entire Mac has no unmanaged activity.","有 \(gap) 個已登記 task 的程序關係目前無法觀察；未登記或無法觀察的 task 不能安全歸因，因此這個結果不代表整台 Mac 絕對沒有繞道活動。",zh)).font(.system(size:10)).foregroundStyle(.secondary).lineSpacing(2)
+                                Text(registered == 0 ? tr("No task has registered with Simulator Manager. Enable the Tool in each Codex task before relying on attribution.","目前沒有 task 登記 Simulator Manager。每個 Codex task 都必須先啟用 Tool，才能可靠歸因。",zh) : tr("\(max(0,registered-observable)) registered task trees are unobservable; \(ambiguous) overlap another registered task tree. Shared processes cannot be safely attributed to one task. This scan does not prove the entire Mac has no unmanaged activity.","有 \(max(0,registered-observable)) 個已登記 task 的程序關係無法觀察，另有 \(ambiguous) 個與其他已登記 task 重疊。共用程序無法安全歸因給單一 task；這次掃描不代表整台 Mac 絕對沒有繞道活動。",zh)).font(.system(size:10)).foregroundStyle(.secondary).lineSpacing(2)
                             }.padding(14).background(lavender.opacity(0.07),in:RoundedRectangle(cornerRadius:16))
                         }
                         if !active.isEmpty {

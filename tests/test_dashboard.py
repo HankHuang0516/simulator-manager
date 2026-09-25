@@ -44,7 +44,8 @@ class DashboardHandoverTests(unittest.TestCase):
         self.assertIn('accessibilityIdentifier("bypass-monitor-button")', source)
         self.assertIn('p.arguments = ["audit","--state-dir",state,"--json"]', source)
         self.assertIn('observable_sessions', source)
-        self.assertIn('Unregistered or unavailable tasks cannot be safely attributed', source)
+        self.assertIn('ambiguous_sessions', source)
+        self.assertIn('Shared processes cannot be safely attributed to one task', source)
         self.assertIn('never stops a task, simulator, emulator, or ADB server', source)
 
     def test_process_inventory_matches_only_exact_managed_executable_path(self):

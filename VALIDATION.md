@@ -1,6 +1,10 @@
 # Validation report
 
-Validated through September 23, 2026. Current version 3.6.0; earlier sections preserve historical validation evidence.
+Validated through September 25, 2026. Current version 3.6.1; earlier sections preserve historical validation evidence.
+
+## Version 3.6.1 — shared-owner attribution guard
+
+The monitor now compares all registered task process trees before attributing a simulator command. If two labels share the same host process or overlapping ancestry, activity in their common subtree becomes an explicit coverage gap rather than a task-specific violation. This closes a live false-attribution case where one task label held an Android lease and another label sharing its process root was reported for direct ADB use. Task-specific audits also leave other tasks' active findings intact. Two behavioral regressions cover both cases. The dashboard displays fully attributable registrations separately from unobservable and overlapping trees, and uses a neutral indicator whenever coverage is incomplete. All 118 automated tests pass locally, both Skill copies validate, and the native macOS 13 SwiftUI target compiles.
 
 ## Version 3.6.0 — one-click bypass monitor
 
