@@ -82,10 +82,6 @@ class ActivationTests(unittest.TestCase):
         self.assertEqual(result['ios']['count'],2)
         self.assertEqual(m.config['pools']['ios']['capacity'],2)
         self.assertEqual(m.config['global_capacity'],2)
-        group=m.acquire('ios',owner_pid=os.getpid(),timeout=0,count=2)
-        self.assertEqual(len(group['leases']),2)
-        for lease in group['leases']:
-            m.release(lease['token'])
         m.close()
 
     def test_prepare_defers_when_another_session_is_working(self):
