@@ -20,9 +20,19 @@ class ManagerTests(unittest.TestCase):
         self.state = Path(self.tmp.name)
         self.conf = self.state/'config.json'
         self.config = {'version':1,'global_capacity':2,'lease_seconds':5,'poll_seconds':.025,
+                       'monitor':{'sample_seconds':1000,'high_load_ratio':1000,'critical_load_ratio':2000,
+                                  'low_memory_percent':.01,'critical_memory_percent':.001,
+                                  'low_disk_gib':.001,'critical_disk_gib':.0001},
                        'pools':{'ios':{'capacity':1,'resources':[{'id':'i1','kind':'generic'},{'id':'i2','kind':'generic'}]},
                                 'android':{'capacity':1,'resources':[{'id':'a1','kind':'generic'}]}}}
         self.write_config()
+        # Generic FIFO tests exercise scheduler invariants, not the CI host's
+        # memory telemetry. Pressure is injected explicitly in its own test.
+        manager = Manager(self.state)
+        with manager.transaction():
+            manager.db.execute("INSERT OR REPLACE INTO meta VALUES('controller',?)",
+                               (json.dumps({'stage':3,'pressure':'healthy','sampled_at':time.time()+3600}),))
+        manager.close()
         self.children = []
 
     def tearDown(self):
