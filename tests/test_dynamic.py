@@ -38,6 +38,8 @@ if name=='xcrun':
  elif args[:2]==['simctl','bootstatus']:time.sleep(float(os.environ.get('DYNAMIC_BOOT_DELAY','0')))
  elif args[:2]==['simctl','shutdown']:
   assert args[2]!='all';con.execute("UPDATE devices SET state='Shutdown' WHERE id=?",(args[2],));con.commit()
+ elif args[:2]==['simctl','delete']:
+  assert args[2]!='all';con.execute("DELETE FROM devices WHERE id=? AND kind='ios' AND state='Shutdown'",(args[2],));con.commit()
  else:sys.exit(99)
 elif name=='avdmanager':
  assert args[:2]==['create','avd']
@@ -451,5 +453,54 @@ class DynamicTests(unittest.TestCase):
         a=self.lease();self.release(a['token']);m=Manager(self.state)
         m.db.execute("UPDATE environments SET running=1,boot='old-boot'")
         retire_idle(m,force=True);self.assertEqual(m.db.execute('SELECT running FROM environments').fetchone()[0],0);m.close()
+
+    def test_shared_switch_requires_drain_repairs_static_target_and_prunes_only_private_devices(self):
+        from sim_manager.provision import prepare
+        from sim_manager.shared import switch_shared, prune_private
+        m=Manager(self.state)
+        self.assertTrue(all(x['ready'] for x in prepare(m).values()))
+        static_ios=m.config['pools']['ios']['resources'][0]['udid']
+        static_android=m.config['pools']['android']['resources'][0]
+        manifest=Path(static_android['avd_home'])/(static_android['avd']+'.ini')
+        manifest.write_text(manifest.read_text().replace('target=android-40','target=android-0'))
+        m.close()
+        private_ios=self.lease();self.release(private_ios['token'])
+        private_android=self.lease(pool='android');self.release(private_android['token'])
+        held=self.lease('busy')
+        m=Manager(self.state)
+        with self.assertRaisesRegex(ManagerError,'zero leases'):
+            switch_shared(m)
+        self.assertEqual(m.config['mode'],'dynamic')
+        m.release(held['token'])
+        changed=switch_shared(m)
+        self.assertEqual(changed['mode'],'traditional')
+        self.assertEqual(changed['android_targets_repaired'],[static_android['id']])
+        self.assertIn('target=android-40',manifest.read_text())
+        removed=prune_private(m)
+        self.assertEqual(set(removed['deleted']),{private_ios['resource_id'],private_android['resource_id'],held['resource_id']})
+        self.assertEqual(removed['blocked'],[])
+        self.assertEqual(removed['remaining'],0)
+        self.assertEqual(m.config['pools']['ios']['resources'][0]['udid'],static_ios)
+        self.assertTrue(manifest.is_file())
+        m.close()
+
+    def test_two_shared_ios_devices_boot_run_and_remain_warm(self):
+        from sim_manager.provision import prepare
+        from sim_manager.shared import switch_shared
+        m=Manager(self.state)
+        self.assertTrue(prepare(m,('ios',),2)['ios']['ready'])
+        self.assertEqual(len(m.config['pools']['ios']['resources']),2)
+        self.assertTrue(prepare(m,('android',))['android']['ready'])
+        switch_shared(m)
+        m.close()
+        command='import os; ids=os.environ["SIM_MANAGER_UDIDS"].split(","); assert len(ids)==2 and all(ids) and ids[0]!=ids[1]'
+        result=self.cli('run','ios','--count','2','--boot','--json','--',sys.executable,'-c',command)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertEqual(json.loads(result.stdout)['count'],2)
+        self.assertEqual(self.status()['leases'],[])
+        con=sqlite3.connect(self.state/'sdk.sqlite')
+        states=con.execute("SELECT state FROM devices WHERE kind='ios'").fetchall()
+        con.close()
+        self.assertEqual(states,[('Booted',),('Booted',)])
 
 if __name__=='__main__':unittest.main()

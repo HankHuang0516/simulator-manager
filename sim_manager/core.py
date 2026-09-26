@@ -234,7 +234,7 @@ class Manager:
                 if name not in columns:
                     self.db.execute('ALTER TABLE leases ADD COLUMN '+name+' '+definition)
             columns = {r['name'] for r in self.db.execute('PRAGMA table_info(queue)')}
-            for name, definition in [('requested_mode',"TEXT NOT NULL DEFAULT 'auto'"),('foreground','INTEGER NOT NULL DEFAULT 0'),('budget','REAL NOT NULL DEFAULT 2400')]:
+            for name, definition in [('requested_mode',"TEXT NOT NULL DEFAULT 'auto'"),('foreground','INTEGER NOT NULL DEFAULT 0'),('budget','REAL NOT NULL DEFAULT 2400'),('count','INTEGER NOT NULL DEFAULT 1')]:
                 if name not in columns:
                     self.db.execute('ALTER TABLE queue ADD COLUMN '+name+' '+definition)
             columns = {r['name'] for r in self.db.execute('PRAGMA table_info(events)')}
@@ -341,19 +341,54 @@ class Manager:
         return [r for r in p['resources'] if r['enabled'] and r['id'] not in used
                 and cost + r['cost'] <= self.config['global_capacity']]
 
+    def request_candidates(self, request, leases):
+        """Select the whole requested set or none, preserving per-pool FIFO."""
+        pool = request['pool']
+        count = request['count']
+        dynamic_single = (count == 1 and self.config['mode'] == 'dynamic'
+                          and pool in ('ios', 'android') and request['requested_mode'] != 'traditional')
+        if not dynamic_single and sum(r['pool'] == pool for r in leases) + count > self.config['pools'][pool]['capacity']:
+            return []
+        options = self.candidates(pool, leases, request)
+        if dynamic_single:
+            # Dynamic admission uses pressure-aware max_parallel, which may be
+            # higher than the traditional shared-pool global capacity.
+            return [dict(options[0])] if options else []
+        from .monitor import admission
+        admission_limit = admission(self)['capacity']
+        chosen = []
+        cost = sum(json.loads(r['spec'])['cost'] for r in leases)
+        for resource in options:
+            if cost + resource['cost'] <= min(self.config['global_capacity'], admission_limit):
+                chosen.append(dict(resource))
+                cost += resource['cost']
+            if len(chosen) == count:
+                return chosen
+        return []
+
     def acquire(self, pool, session=None, project=None, owner_pid=None, timeout=300, ttl=None,
-                mode='auto', budget=None, foreground=False):
+                mode='auto', budget=None, foreground=False, count=1):
         from . import monitor, dynamic
         positive(timeout, 'timeout', True)
         ttl = positive(ttl if ttl is not None else self.config['lease_seconds'], 'lease seconds')
         budget = min(positive(budget if budget is not None else self.config['policy']['max_hold_seconds'],'budget'), self.config['policy']['max_hold_seconds'])
         if mode not in ('auto','dynamic','traditional'):
             raise ManagerError('Invalid requested mode')
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            raise ManagerError('Device count must be a positive integer')
         if self.canonical(self.requested) != self.canonical(self.config):
             raise ManagerError('Config changed while resources are busy; release/drain before acquiring with new config')
         if pool not in self.config['pools']:
             raise ManagerError(f'Unknown pool: {pool}')
         p = self.config['pools'][pool]
+        if count > 1:
+            if mode == 'dynamic':
+                raise ManagerError('Multi-device requests use the shared pool, not private Dynamic mode')
+            mode = 'traditional'
+            if count > p['capacity'] or sum(r['enabled'] for r in p['resources']) < count:
+                raise ManagerError('Shared pool lacks enough configured devices for this group')
+            if sum(sorted(r['cost'] for r in p['resources'] if r['enabled'])[:count]) > self.config['global_capacity']:
+                raise ManagerError('Shared host capacity is smaller than this device group')
         mobile_dynamic = self.config['mode']=='dynamic' and pool in ('ios','android') and mode!='traditional'
         if not p['capacity'] or (not mobile_dynamic and not any(r['enabled'] for r in p['resources'])):
             raise ManagerError(f'Pool {pool} has no enabled capacity; configure dedicated devices first')
@@ -375,8 +410,8 @@ class Manager:
             current = self.db.execute("SELECT value FROM meta WHERE key='config'").fetchone()
             if self.canonical(normalize_config(json.loads(current['value']))) != self.canonical(self.requested):
                 raise ManagerError('Shared configuration changed; retry acquire with current configuration')
-            self.db.execute('INSERT INTO queue(request,pool,session,project,owner_pid,owner_start,boot,waiter_pid,waiter_start,deadline,ttl,created,requested_mode,foreground,budget) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                            (request,pool,session,project,pid,start,self.machine_boot,os.getpid(),waiter,time.time()+(60 if timeout==0 else timeout),ttl,time.time(),mode,int(foreground),budget))
+            self.db.execute('INSERT INTO queue(request,pool,session,project,owner_pid,owner_start,boot,waiter_pid,waiter_start,deadline,ttl,created,requested_mode,foreground,budget,count) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                            (request,pool,session,project,pid,start,self.machine_boot,os.getpid(),waiter,time.time()+(60 if timeout==0 else timeout),ttl,time.time(),mode,int(foreground),budget,count))
             self.db.execute('UPDATE sessions SET last_seen=? WHERE session=?',(time.time(),session))
             self.event('queued',session=session,detail=pool,project=project,pool=pool)
         try:
@@ -391,39 +426,42 @@ class Manager:
                         raise WaitTimeout('Request expired or owner exited')
                     leases = self.db.execute('SELECT * FROM leases').fetchall()
                     heads = self.db.execute('SELECT * FROM queue WHERE seq IN (SELECT MIN(seq) FROM queue GROUP BY pool) ORDER BY seq').fetchall()
-                    eligible = next((h for h in heads if self.candidates(h['pool'],leases,h)),None)
+                    eligible = next((h for h in heads if self.request_candidates(h,leases)),None)
                     if eligible and eligible['request']==request:
                         if not first and time.monotonic()>=end:
                             raise WaitTimeout(f'Timed out waiting for {pool}')
-                        r = self.candidates(pool,leases,eligible)[0]
-                        actual_mode = r.pop('_mode','traditional')
-                        create = r.pop('_create',False)
-                        token = secrets.token_hex(32)
+                        chosen = self.request_candidates(eligible,leases)
                         now = time.time()
-                        if create:
-                            self.db.execute('INSERT INTO environments VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
-                                (r['id'],session,project,pool,json.dumps(r),'creating',os.getpid(),waiter,self.machine_boot,0,now,now))
-                        self.db.execute('INSERT INTO leases(resource,token,pool,session,project,owner_pid,owner_start,boot,expires,created,spec,mode,hard_expires,foreground) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                                        (r['id'],token,pool,session,project,pid,start,self.machine_boot,now+min(ttl,budget),now,json.dumps(r),actual_mode,now+budget,int(foreground)))
+                        granted = []
+                        for r in chosen:
+                            actual_mode = r.pop('_mode','traditional')
+                            create = r.pop('_create',False)
+                            token = secrets.token_hex(32)
+                            if create:
+                                self.db.execute('INSERT INTO environments VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+                                    (r['id'],session,project,pool,json.dumps(r),'creating',os.getpid(),waiter,self.machine_boot,0,now,now))
+                            self.db.execute('INSERT INTO leases(resource,token,pool,session,project,owner_pid,owner_start,boot,expires,created,spec,mode,hard_expires,foreground) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                                            (r['id'],token,pool,session,project,pid,start,self.machine_boot,now+min(ttl,budget),now,json.dumps(r),actual_mode,now+budget,int(foreground)))
+                            self.event('acquired',r['id'],session,actual_mode,project,pool,now)
+                            granted.append((token,r,create))
                         self.db.execute('DELETE FROM queue WHERE request=?',(request,))
-                        self.event('acquired',r['id'],session,actual_mode,project,pool,now)
-                        granted = (token,r,create)
                 if granted:
-                    token,r,create = granted
-                    if create:
-                        try:
-                            dynamic.create_environment(self,token,r,pool)
-                        except BaseException:
-                            dynamic.fail_environment(self,r['id'])
+                    try:
+                        for token,r,create in granted:
+                            if create:
+                                dynamic.create_environment(self,token,r,pool)
+                        results = [self.lease_result(self.get_lease(token,True),True) for token,_,_ in granted]
+                        if any(r['remaining_seconds']<=0 for r in results):
+                            error = ManagerError('Total budget ended before environment delivery; released')
+                            error.code = 124
+                            raise error
+                        return results[0] if count == 1 else {'leases': results, 'count': count, 'pool': pool}
+                    except BaseException:
+                        for token,r,create in granted:
+                            if create:
+                                dynamic.fail_environment(self,r['id'])
                             self.release(token)
-                            raise
-                    result = self.lease_result(self.get_lease(token,True),True)
-                    if result['remaining_seconds']<=0:
-                        self.release(token)
-                        error = ManagerError('Total budget ended before environment delivery; released')
-                        error.code = 124
-                        raise error
-                    return result
+                        raise
                 first = False
                 if time.monotonic()>=end:
                     raise WaitTimeout(f'Timed out waiting for {pool}')
@@ -579,7 +617,7 @@ class Manager:
             reaped = self.initial_reaped + self.sweep()
             self.initial_reaped = []
             leases = [self.lease_result(r) for r in self.db.execute('SELECT * FROM leases ORDER BY created')]
-            queue = [dict(r) for r in self.db.execute('SELECT seq,pool,session,project,owner_pid,created,deadline FROM queue ORDER BY seq')]
+            queue = [dict(r) for r in self.db.execute('SELECT seq,pool,session,project,owner_pid,created,deadline,count FROM queue ORDER BY seq')]
             return {'state_dir':str(self.state_dir), 'config_error':self.config_error, 'config_pending': self.canonical(self.config)!=self.canonical(self.requested),
                     'scheduler':monitor.admission(self),'policy':self.config['policy'],
                     'environments':[{**dict(r),'resource_spec':json.loads(r['spec'])} for r in self.db.execute('SELECT resource,session,project,pool,spec,phase,running,created,last_used FROM environments ORDER BY created')],

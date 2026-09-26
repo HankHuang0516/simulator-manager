@@ -7,7 +7,7 @@ import signal
 import sqlite3
 import sys
 from .core import Manager, ManagerError, positive
-from .execution import execute, validate_runtime_command
+from .execution import execute, execute_group, validate_runtime_command
 from . import providers, __version__
 
 
@@ -15,7 +15,16 @@ def output(result, fmt):
     if fmt == 'json':
         print(json.dumps(result, ensure_ascii=False))
     elif fmt == 'shell':
-        if 'token' in result:
+        if 'leases' in result:
+            leases = result['leases']
+            values = {'SIM_MANAGER_COUNT':len(leases),
+                      'SIM_MANAGER_TOKENS':','.join(r['token'] for r in leases),
+                      'SIM_MANAGER_RESOURCE_IDS':','.join(r['resource_id'] for r in leases),
+                      'SIM_MANAGER_UDIDS':','.join(r['resource'].get('udid','') for r in leases),
+                      'SIM_MANAGER_SERIALS':','.join(f'emulator-{r["resource"]["port"]}' if r['resource']['kind']=='android' else '' for r in leases)}
+            for key, value in values.items():
+                print(f'export {key}={shlex.quote(str(value))}')
+        elif 'token' in result:
             r = result['resource']
             values = {'SIM_MANAGER_TOKEN':result['token'], 'SIM_MANAGER_RESOURCE_ID':result['resource_id'],
                       'SIM_MANAGER_POOL':result['pool'], 'SIM_MANAGER_SESSION':result['session'],
@@ -49,6 +58,7 @@ def parser():
         s.add_argument('--project')
         s.add_argument('--mode',choices=['auto','dynamic','traditional'],default='auto')
         s.add_argument('--budget-seconds',type=float)
+        s.add_argument('--count',type=int,default=1,help='Acquire this many same-platform devices atomically')
         s.add_argument('--foreground',action='store_true',help='Serialize use of the shared desktop GUI')
         s.add_argument('--timeout', type=float, default=300, help='Queue wait seconds; 0 means try once')
         if name == 'acquire':
@@ -75,7 +85,8 @@ def parser():
     s.add_argument('--prepare',action='store_true',help='Create dedicated shutdown devices from installed SDK components')
     s = subs.add_parser('setup',parents=[common])
     s.add_argument('kind',choices=['ios','android','all'],default='all',nargs='?')
-    for name in ('status','cleanup','validate-config'):
+    s.add_argument('--count',type=int,default=1,help='Prepare this many warm shared devices per platform')
+    for name in ('status','cleanup','validate-config','switch-shared','prune-private'):
         subs.add_parser(name, parents=[common])
     s = subs.add_parser('audit',parents=[common],help='Detect unmanaged simulator commands and return session-specific coaching')
     s.add_argument('--session')
@@ -146,9 +157,9 @@ def main(argv=None):
                 result['watcher'] = ensure(m)
         elif a.action == 'setup':
             from .provision import prepare
-            result = {'platforms':prepare(m, ('ios','android') if a.kind=='all' else (a.kind,))}
+            result = {'platforms':prepare(m, ('ios','android') if a.kind=='all' else (a.kind,), a.count)}
         elif a.action == 'acquire':
-            result = m.acquire(a.pool,a.session,a.project,a.owner_pid,a.timeout,a.lease_seconds,a.mode,a.budget_seconds,a.foreground)
+            result = m.acquire(a.pool,a.session,a.project,a.owner_pid,a.timeout,a.lease_seconds,a.mode,a.budget_seconds,a.foreground,a.count)
         elif a.action == 'run':
             positive(a.command_timeout, 'command-timeout')
             positive(a.boot_timeout, 'boot-timeout')
@@ -159,29 +170,44 @@ def main(argv=None):
                 ensure(m)
             attempts = 0
             while True:
-                lease = m.acquire(a.pool,a.session,a.project,os.getpid(),a.timeout,None,a.mode,a.budget_seconds,a.foreground)
-                token = lease['token']
+                acquired = m.acquire(a.pool,a.session,a.project,os.getpid(),a.timeout,None,a.mode,a.budget_seconds,a.foreground,a.count)
+                leases = acquired['leases'] if 'leases' in acquired else [acquired]
+                tokens = [lease['token'] for lease in leases]
                 rc = 1
                 try:
-                    rc = boot_command(m,token,a.boot_timeout,a.format) if a.boot else 0
+                    rc = 0
+                    if a.boot:
+                        for token in tokens:
+                            rc = boot_command(m,token,a.boot_timeout,a.format)
+                            if rc:
+                                break
                     if rc==0:
-                        r = lease['resource']
-                        env = {**os.environ,'SIM_MANAGER_TOKEN':token,
+                        r = leases[0]['resource']
+                        env = {**os.environ,'SIM_MANAGER_TOKEN':tokens[0],
                                'SIM_MANAGER_RESOURCE_ID':r['id'],'SIM_MANAGER_POOL':a.pool,
-                               'SIM_MANAGER_SESSION':lease['session'],'SIM_MANAGER_UDID':r.get('udid',''),
+                               'SIM_MANAGER_SESSION':leases[0]['session'],'SIM_MANAGER_UDID':r.get('udid',''),
                                'SIM_MANAGER_SERIAL':f'emulator-{r["port"]}' if r['kind']=='android' else '',
-                               'SIM_MANAGER_AVD':r.get('avd',''),'SIM_MANAGER_HARD_EXPIRES':str(lease['hard_expires'])}
-                        rc = execute(m,token,command,env,a.command_timeout,
-                                     stdout=sys.stderr if a.format=='json' else None)
+                               'SIM_MANAGER_AVD':r.get('avd',''),'SIM_MANAGER_HARD_EXPIRES':str(leases[0]['hard_expires']),
+                               'SIM_MANAGER_COUNT':str(len(leases)),
+                               'SIM_MANAGER_TOKENS':','.join(tokens),
+                               'SIM_MANAGER_RESOURCE_IDS':','.join(lease['resource_id'] for lease in leases),
+                               'SIM_MANAGER_UDIDS':','.join(lease['resource'].get('udid','') for lease in leases),
+                               'SIM_MANAGER_SERIALS':','.join(f'emulator-{lease["resource"]["port"]}' if lease['resource']['kind']=='android' else '' for lease in leases)}
+                        runner = execute_group if len(tokens)>1 else execute
+                        rc = runner(m,tokens if len(tokens)>1 else tokens[0],command,env,a.command_timeout,
+                                    stdout=sys.stderr if a.format=='json' else None)
                 finally:
-                    m.release(token)
+                    for token in tokens:
+                        m.release(token)
                 if rc!=75 or not a.requeue_on_yield or attempts>=a.max_requeues:
                     break
                 attempts += 1
                 print('sim-manager: yielded safely; rejoining the FIFO queue',file=sys.stderr)
             if a.format=='json':
-                output({'resource_id':lease['resource_id'],'exit_code':rc,'released':True,
-                        'requeues':attempts,'requeue_required':rc==75,'mode':lease['mode']},a.format)
+                output({'resource_id':leases[0]['resource_id'],
+                        'resource_ids':[lease['resource_id'] for lease in leases], 'count':len(leases),
+                        'exit_code':rc,'released':True,'requeues':attempts,
+                        'requeue_required':rc==75,'mode':leases[0]['mode']},a.format)
             return rc
         elif a.action == '_create':
             from .dynamic import provision_environment
@@ -221,6 +247,12 @@ def main(argv=None):
             result = m.status()
         elif a.action == 'cleanup':
             result = m.cleanup()
+        elif a.action == 'switch-shared':
+            from .shared import switch_shared
+            result = switch_shared(m)
+        elif a.action == 'prune-private':
+            from .shared import prune_private
+            result = prune_private(m)
         elif a.action == 'audit':
             from . import compliance
             if a.acknowledge:

@@ -78,5 +78,7 @@ def admission(manager):
     stage = state['stage'] if manager.config['mode']=='dynamic' else 3
     maximum = manager.config['dynamic']['max_parallel']
     limit = maximum if stage<=1 else max(1,maximum//2) if stage==2 else manager.config['global_capacity']
+    if stage == 3 and state.get('pressure') in ('elevated', 'critical'):
+        limit = max(1, int(limit)//2)
     return {'stage':stage, 'mode':STAGES[stage], 'capacity':limit, 'creation_allowed':stage==0,
             'metrics':state.get('metrics'), 'pressure':state.get('pressure','unknown')}

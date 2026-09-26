@@ -1,6 +1,14 @@
 # Validation report
 
-Validated through September 25, 2026. Current version 3.6.1; earlier sections preserve historical validation evidence.
+Validated through September 27, 2026. Current source version 4.0.0; earlier sections preserve historical validation evidence.
+
+## Version 4.0.0 — warm shared pool and multiplayer groups
+
+New installations default to the warm shared FIFO pool. Same-platform multiplayer work requests `--count N` (MCP `device_count`) and receives either the whole group or no leases. All devices are tracked under one supervised workload, share the original hold/yield budget, and are released on failure or completion without shutdown. `setup ios|android --count N` expands a managed pool only with zero leases and FIFO waiters. Elevated/critical host pressure reduces new shared admission capacity without evicting live work. The dashboard queue exposes the requested group size. Explicit `switch-shared` and `prune-private` support drained migration; private cleanup requires exact provenance and refuses live or ambiguous devices.
+
+The complete 126-test suite passed locally. Targeted regressions verify atomic FIFO fairness against a later single-device task, group release on command failure, pressure blocking without partial grants, two fake iOS devices booting and remaining warm, safe shared migration and private cleanup. Both Skill copies validate, Python/shell/JavaScript checks pass, the native dashboard compiles for macOS 13, and `git diff --check` is clean.
+
+On the live Mac, the installed CLI upgraded to 4.0.0 during a zero-lease/zero-waiter window. `switch-shared` changed the saved mode and repaired only the manager-owned idle static Android AVD's invalid root target. `prune-private` removed 24 provenance-verified offline environments; their directory changed from approximately 55 GiB to 0 B. One failed iOS creation row without an acknowledged UDID remains quarantined; it has no private environment files. Setup added one second shared device to each mobile pool, giving two iOS and two Android devices with a global running capacity of two. Non-booting supervised `run --count 2` smoke calls succeeded on both platforms and released all four tested leases. The managed watcher was restarted and observed alive. No simulator/emulator or Unity Editor was diagnostically restarted. These smokes prove local group scheduling, not real app multiplayer behavior or a completed mobile boot/UI test. Cross-platform iOS+Android groups are not atomic.
 
 ## Version 3.6.1 — shared-owner attribution guard
 

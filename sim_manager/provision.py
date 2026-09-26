@@ -194,7 +194,9 @@ def android_resource(manager, reserved_port=None, private_home=None):
             'cost':1,'enabled':True,'allow_attach':False}
 
 
-def prepare(manager, kinds=('ios','android')):
+def prepare(manager, kinds=('ios','android'), count=1):
+    if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+        raise ManagerError('Setup device count must be a positive integer')
     results = {}
     for kind in kinds:
         with manager.transaction():
@@ -204,23 +206,29 @@ def prepare(manager, kinds=('ios','android')):
                 results[kind] = {'ready':False,'reason':'Configuration change pending; drain and retry'}
                 continue
             pool = current['pools'].get(kind)
-            if pool and pool['capacity'] and any(r['enabled'] and r['kind']==kind for r in pool['resources']):
-                results[kind] = {'ready':True,'created':False}
-                continue
-            # Never change an intentionally disabled/configured pool.
-            if pool and (pool['capacity']==0 or pool['resources']):
+            # Never change an intentionally disabled or mixed-kind pool.
+            if pool and (pool['capacity']==0 or any(r['kind'] != kind for r in pool['resources'])):
                 results[kind] = {'ready':False,'reason':'Existing pool is disabled or configured; configuration preserved'}
+                continue
+            existing = sum(r['enabled'] for r in pool['resources']) if pool else 0
+            if existing >= count:
+                results[kind] = {'ready':True,'created':False,'count':existing}
                 continue
             if manager.db.execute('SELECT 1 FROM leases UNION ALL SELECT 1 FROM queue LIMIT 1').fetchone():
                 results[kind] = {'ready':False,'reason':'Resources are in use; dedicated device setup deferred'}
                 continue
+            created = []
             try:
-                resource = ios_resource(manager) if kind=='ios' else android_resource(manager)
-                updated = copy.deepcopy(current)
-                updated['pools'][kind] = {'capacity':1,'resources':[resource]}
-                save_config(manager,updated)
-                manager.event('device-created',resource['id'],detail=kind)
-                results[kind] = {'ready':True,'created':True,'resource_id':resource['id']}
+                for _ in range(count-existing):
+                    resource = ios_resource(manager) if kind=='ios' else android_resource(manager)
+                    updated = copy.deepcopy(manager.config)
+                    updated['pools'][kind]['resources'].append(resource)
+                    updated['pools'][kind]['capacity'] = max(updated['pools'][kind]['capacity'],len(updated['pools'][kind]['resources']))
+                    updated['global_capacity'] = max(updated['global_capacity'],count)
+                    save_config(manager,updated)
+                    manager.event('device-created',resource['id'],detail=kind)
+                    created.append(resource['id'])
+                results[kind] = {'ready':True,'created':bool(created),'resource_ids':created,'count':existing+len(created)}
             except ManagerError as e:
-                results[kind] = {'ready':False,'reason':str(e)}
+                results[kind] = {'ready':False,'reason':str(e),'resource_ids':created,'count':existing+len(created)}
     return results

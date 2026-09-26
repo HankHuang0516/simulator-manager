@@ -71,6 +71,23 @@ class ActivationTests(unittest.TestCase):
             creator.assert_not_called()
         m.close()
 
+    def test_prepare_expands_shared_pool_for_two_device_test(self):
+        m=Manager(self.state)
+        devices=[{'id':f'owned-ios-{n}','kind':'ios','udid':f'11111111-1111-1111-1111-{n:012d}',
+                  'cost':1,'enabled':True,'allow_attach':False} for n in (1,2)]
+        with patch('sim_manager.provision.ios_resource',side_effect=devices) as creator:
+            result=prepare(m,('ios',),2)
+        self.assertEqual(creator.call_count,2)
+        self.assertTrue(result['ios']['ready'])
+        self.assertEqual(result['ios']['count'],2)
+        self.assertEqual(m.config['pools']['ios']['capacity'],2)
+        self.assertEqual(m.config['global_capacity'],2)
+        group=m.acquire('ios',owner_pid=os.getpid(),timeout=0,count=2)
+        self.assertEqual(len(group['leases']),2)
+        for lease in group['leases']:
+            m.release(lease['token'])
+        m.close()
+
     def test_prepare_defers_when_another_session_is_working(self):
         m=Manager(self.state)
         lease=m.acquire('gui',owner_pid=os.getpid(),timeout=0)

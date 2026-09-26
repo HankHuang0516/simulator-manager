@@ -43,7 +43,7 @@ struct Lease: Decodable, Identifiable {
     var id: String { resource_id }
     var end: Double { min(expires, hard_expires, yield_by ?? hard_expires) }
 }
-struct Waiter: Decodable, Identifiable { let seq: Int; let pool: String; let session: String; let project: String; let created: Double; var id: Int { seq } }
+struct Waiter: Decodable, Identifiable { let seq: Int; let pool: String; let session: String; let project: String; let created: Double; let count: Int?; var id: Int { seq } }
 struct Session: Decodable, Identifiable { let session: String; let project: String; var id: String { session } }
 struct Environment: Decodable, Identifiable { let resource: String; let pool: String; let project: String; let session: String; let phase: String; let running: Int; var id: String { resource } }
 struct Event: Decodable, Identifiable {
@@ -197,14 +197,14 @@ func localizedGuide(_ zh: Bool) -> [GuideCopy] {
     if zh { return [
         GuideCopy(title:"歡迎使用 Simulator Manager",body:"這個小浮框是所有 Codex task 共用的模擬器中轉站。關閉視窗只會隱藏；可從選單列或「應用程式」再次打開。",bullets:["安裝完成後自動啟動","常駐選單列，隨時查看排程","不會清除任何模擬器資料"],symbol:"square.stack.3d.up.fill"),
         GuideCopy(title:"先完成不需要模擬器的檢查",body:"Codex 應先執行編譯、靜態檢查與主機單元測試；只有畫面、導覽、手勢、生命週期或執行期行為才進入分配流程。",bullets:["文件與純邏輯通常不需模擬器","需要 runtime/UI 驗證才提出請求","避免浪費啟動與佔用時間"],symbol:"hammer.fill"),
-        GuideCopy(title:"讓 Tool 取得精確裝置",body:"在 Codex task 說「Use simulator-manager for this project.」。Tool 會排隊、啟動指定裝置、執行測試，並在成功、失敗、逾時或中斷後自動釋放。",bullets:["不得直接選擇 booted 裝置","不得使用未指定的 adb target","每個 task 都只能 release，必須保留暖機裝置"],symbol:"play.circle.fill"),
+        GuideCopy(title:"讓 Tool 取得精確裝置",body:"在 Codex task 說「Use simulator-manager for this project.」。多人連線測試可一次申請整組同平台裝置；Tool 會排隊、啟動、執行並全部釋放。",bullets:["多人測試使用 --count N，不可逐台搶占","不得使用未指定的 adb target","每個 task 都只能 release，必須保留暖機裝置"],symbol:"play.circle.fill"),
         GuideCopy(title:"公平使用與安全讓位",body:"建立、開機、安裝、測試與匯出共用同一個 40 分鐘上限；有人等待時，仍須在 2 分鐘安全切點完成並回到隊尾。",bullets:["1800 秒 soak 可在無人等待時完成","總佔用上限包含開機與匯出","禁止 simctl shutdown、adb emu kill 或關閉 emulator"],symbol:"person.2.fill"),
         GuideCopy(title:"偏離規則時會主動教學",body:"監督程式只讀取已登記 task 的程序關係。發現直接使用 simctl、adb、emulator 或未租用的模擬器測試時，會標記該 task 並產生修正指引。",bullets:["只記錄動作種類，不保存完整命令","不會終止 task 或裝置","已採用 Tool 的 task 會在下次互動收到專屬指引"],symbol:"graduationcap.fill")
     ] }
     return [
         GuideCopy(title:"Welcome to Simulator Manager",body:"This floating dashboard is the shared control plane between Codex tasks and mobile simulators. Closing the panel only hides it; reopen it from the menu bar or Applications.",bullets:["Opens after installation","Lives in the menu bar","Never erases simulator data"],symbol:"square.stack.3d.up.fill"),
         GuideCopy(title:"Run host checks first",body:"Codex should finish builds, static checks, and host unit tests before requesting a device. Enter the managed lane only for UI or runtime behavior.",bullets:["Docs and pure logic usually need no simulator","Request only for runtime or UI validation","Avoid unnecessary boot and occupancy time"],symbol:"hammer.fill"),
-        GuideCopy(title:"Let the Tool assign one exact device",body:"Tell a Codex task “Use simulator-manager for this project.” The Tool queues, boots, runs, and releases after success, failure, interruption, or timeout.",bullets:["Never target booted implicitly","Never use an unspecified adb target","Every task must release and leave the verified device warm"],symbol:"play.circle.fill"),
+        GuideCopy(title:"Let the Tool assign exact devices",body:"Tell a Codex task “Use simulator-manager for this project.” A multiplayer test can request a same-platform device group; the Tool queues, boots, runs and releases every device.",bullets:["Use --count N for multiplayer; never grab devices one by one","Never use an unspecified adb target","Release every device and leave it warm"],symbol:"play.circle.fill"),
         GuideCopy(title:"Share fairly and yield safely",body:"Creation, boot, installation, testing, and export share one 40-minute cap. When someone waits, checkpoint at the 2-minute boundary and rejoin at the back of the queue.",bullets:["A 1800-second soak fits while nobody waits","Boot and export count toward occupancy","Never shut down a device; the manager reuses or retires it"],symbol:"person.2.fill"),
         GuideCopy(title:"Coaching appears when a task drifts",body:"The watcher reads process relationships for registered tasks. Direct simctl, adb, emulator, or unleased simulator tests create targeted guidance.",bullets:["Stores the action type, never the full command","Never kills a task or device","Tool-enabled tasks receive their lesson on the next interaction"],symbol:"graduationcap.fill")
     ]
@@ -412,7 +412,8 @@ struct LeaseRow: View {
 }
 struct WaitRow: View {
     let waiter: Waiter; let position: Int
-    var body: some View { HStack(spacing: 10) { Text(String(position)).font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(lavender).frame(width: 27, height: 27).background(lavender.opacity(0.09), in: Circle()); VStack(alignment: .leading, spacing: 3) { Text(projectName(waiter.project)).font(.system(size: 12, weight: .medium)).lineLimit(1); Text("\(waiter.pool.uppercased()) · \(waiter.session.prefix(8))").font(.system(size: 9)).foregroundStyle(.secondary) }; Spacer(); TimelineView(.periodic(from: .now, by: 1)) { tick in Text(duration(tick.date.timeIntervalSince1970-waiter.created)).font(.system(size: 11, design: .rounded)).monospacedDigit().foregroundStyle(.secondary) } }.padding(12).background(.white.opacity(0.65), in: RoundedRectangle(cornerRadius: 15)) }
+    var groupSuffix: String { let size = waiter.count ?? 1; return size > 1 ? " ×\(size)" : "" }
+    var body: some View { HStack(spacing: 10) { Text(String(position)).font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(lavender).frame(width: 27, height: 27).background(lavender.opacity(0.09), in: Circle()); VStack(alignment: .leading, spacing: 3) { Text(projectName(waiter.project)).font(.system(size: 12, weight: .medium)).lineLimit(1); Text("\(waiter.pool.uppercased())\(groupSuffix) · \(waiter.session.prefix(8))").font(.system(size: 9)).foregroundStyle(.secondary) }; Spacer(); TimelineView(.periodic(from: .now, by: 1)) { tick in Text(duration(tick.date.timeIntervalSince1970-waiter.created)).font(.system(size: 11, design: .rounded)).monospacedDigit().foregroundStyle(.secondary) } }.padding(12).background(.white.opacity(0.65), in: RoundedRectangle(cornerRadius: 15)) }
 }
 struct Metric: View {
     let name: String; let value: String; let icon: String

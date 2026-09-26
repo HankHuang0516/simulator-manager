@@ -2,7 +2,7 @@
 
 **Your session. Your simulator. A fair share of the Mac.**
 
-A local Codex Tool, Skill and macOS shared resource scheduler. The Tool exposes safe MCP actions while the scheduler enforces ownership, FIFO admission, occupancy deadlines and release. New installations default to **Dynamic Simulator Pool**: each session/project gets its own persistent iOS device or Android writable AVD, created lazily for runtime testing. Host pressure gradually reduces concurrency and falls back to **Traditional Mode**, the original shared-pool FIFO scheduler. Python 3.9+, standard library only.
+A local Codex Tool, Skill and macOS shared resource scheduler. The Tool exposes safe MCP actions while the scheduler enforces ownership, FIFO admission, occupancy deadlines and release. New installations default to a **warm shared pool**: tasks borrow the same manager-owned iOS Simulators or Android Emulators in turn. Apps and data remain on each device between borrowers. A task that needs several devices for multiplayer testing can request an atomic group. Private Dynamic Simulator Pool remains an explicit option. Python 3.9+, standard library only.
 
 **Official website:** [eclawbot.com/AiHankApps/tools/simulator-manager](https://eclawbot.com/AiHankApps/tools/simulator-manager/)
 
@@ -30,37 +30,57 @@ The agent follows [SESSION_START.md](SESSION_START.md), installs the complete CL
 
 After registration, the Tool audits the task's process tree before runtime/UI phases. If a registered task directly invokes simulator-facing `simctl`, `xcodebuild`, `adb`, or `emulator` work without a matching lease, it returns targeted coaching and the managed replacement. The watcher stores only a bounded action category and attribution record, never the full command. Coaching never kills a task, simulator, emulator, or adb server. A task that never registers cannot be safely identified from an OS process alone; the dashboard shows only attributable findings rather than guessing.
 
-![Dynamic Simulator Pool and Traditional Mode flowchart](assets/flowchart.png)
-
-[Editable SVG](assets/flowchart.svg) · [Accessible flowchart](docs/FLOWCHART.md) · [Complete Skill](skill/simulator-manager/SKILL.md)
+[Current shared-pool workflow](docs/FLOWCHART.md) · [Complete Skill](skill/simulator-manager/SKILL.md)
 
 ## Runtime lifecycle
 
 1. Run builds, static checks and host unit tests first.
 2. Request a simulator only for runtime/UI/device-dependent verification.
-3. Join FIFO admission, then acquire a private session environment or a Traditional Mode slot.
-4. Start one total occupancy clock: **creation + boot + validation**, without resets between phases.
+3. Join FIFO admission for one device or an atomic group; no partial group is held while waiting.
+4. Start one total occupancy clock per granted device: **boot + validation**, without resets between phases.
 5. Use only the assigned UDID/serial. Keep work within its deadline and renewal allowance.
 6. If another session waits, checkpoint/finish your chunk, release, and rejoin at the queue tail for remaining work.
-7. Release on success, failure, interruption or timeout. Idle private VMs may be shut down safely; their data and session assignment remain.
+7. Release every device on success, failure, interruption or timeout. Shared devices remain warm for the next borrower.
 
 Application XCTest targets requiring a simulator and Android instrumented tests require reservations too. Build-for-testing outside the lease where supported, then test-without-building inside it.
 
 ## Two modes
 
-| | Dynamic Simulator Pool — default | Traditional Mode |
+| | Warm shared pool — default | Dynamic Simulator Pool — optional |
 | --- | --- | --- |
-| Environment | Stable private device per session + project + platform | Configured shared pool devices |
-| Creation | Lazy, parallel, admission reserved before SDK calls | `setup` creates dedicated fallback slots from installed SDKs |
-| Concurrency | Up to `dynamic.max_parallel`, reduced by pressure | Shared weighted `global_capacity` and pool capacities |
-| Persistence | Unique iOS UDID / Android AVD and writable directory | Pool device data persists across borrowers |
-| Idle behavior | Manager may stop its own **unleased** private VM; no erase | Release leaves the bounded static pool running for reuse |
+| Environment | Configured pool devices lent in FIFO order | Stable private device per session + project + platform |
+| Creation | `setup` creates a bounded number from installed SDKs | Lazy creation within admission budget |
+| Concurrency | Weighted `global_capacity` and per-pool capacities; atomic `--count N` groups | Up to `dynamic.max_parallel`, reduced by pressure |
+| Persistence | Pool device apps/data persist across borrowers | Unique iOS UDID / Android AVD and writable directory |
+| Idle behavior | Release leaves the shared pool warm | Manager may stop its own **unleased** private VM without erasing data |
 
-This is device-data isolation similar to dedicated development environments. It is not Docker/container isolation: sessions still share the host, SDKs, adb server, simulator UI application and foreground desktop. Use device-targeted commands for parallel tests. For visible desktop automation, add **`--foreground`** to the mobile request; foreground requests and the `gui` pool serialize atomically without nested reservations.
+The shared pool intentionally retains apps and data across borrowers. Tests using the same app must isolate accounts and test records themselves. It is not Docker/container isolation: sessions share the host, SDKs, adb server, simulator UI application and foreground desktop. Use device-targeted commands for parallel tests. For visible desktop automation, add **`--foreground`** to the mobile request; foreground requests and the `gui` pool serialize atomically without nested reservations.
 
 Private identity does not mean permanent occupancy. Keep the returned session label stable, including across tool calls. A new label or different project path creates a different environment. At `max_environments`, new owners wait/timeout; existing environments are never silently erased or reassigned. Failed partial creations remain visible and quarantined for operator inspection.
 
-Existing configurations without `mode` retain Traditional Mode. Upgrades preserve configuration. To opt in, drain work, set `"mode": "dynamic"`, and keep every session on version 3.6.1.
+Existing installations keep their saved mode during upgrade. To migrate a private installation, first drain all leases and FIFO waiters, run `sim-manager setup all` if a shared platform device is missing, then `sim-manager switch-shared`. With no active work, run `sim-manager prune-private` to delete provenance-verified offline private devices and report ambiguous leftovers. Finally prepare only the extra shared devices a real multiplayer test needs with `setup ios|android --count N`. This order recovers disk before creating additional devices. To opt into private mode instead, drain work and set `"mode": "dynamic"` deliberately.
+
+## Multiplayer and multi-device tests
+
+Prepare as many shared devices as the test needs. Setup is a one-time, idle-window operation; it never boots or downloads a runtime:
+
+```sh
+sim-manager setup ios --count 2 --json
+sim-manager setup android --count 2 --json
+```
+
+Then request the **whole same-platform group** in one supervised call:
+
+```sh
+sim-manager run ios --count 2 --session my-session --project /absolute/project/path --boot -- \
+  sh -eu -c 'IFS=, read -r first second <<EOF
+$SIM_MANAGER_UDIDS
+EOF
+  xcodebuild test-without-building -destination "id=$first" -scheme MyApp
+  ./multiplayer-check "$first" "$second"'
+```
+
+`SIM_MANAGER_UDIDS` or `SIM_MANAGER_SERIALS` lists assigned devices in stable order; `SIM_MANAGER_COUNT`, `SIM_MANAGER_RESOURCE_IDS`, and `SIM_MANAGER_TOKENS` expose the corresponding group. Legacy singular variables identify the first device. Use explicit `-destination id=...` or `adb -s emulator-...` for **every** device. A group joins FIFO as one request, receives all N devices atomically, uses the same hold/yield policy, and releases all leases when the command ends or fails. `--count 2` works through `simulator_manager_run` as `device_count: 2` in the MCP Tool. Cross-platform groups are not yet atomic; use separate bounded phases for iOS and Android.
 
 ## Time limits and fair yielding
 
@@ -89,7 +109,7 @@ The limit bounds automatic retries. The manager never assumes an arbitrary comma
 
 Strict time enforcement requires supervised **`run`**. Manual leases expose deadlines and reject expired boot/renew calls; unknown external GUI activity cannot be safely inferred or killed. An expired manual lease with a live owner remains protected until explicitly released. Never kill the long-lived Codex/session owner to recover a slot.
 
-## Gradual performance fallback
+## Gradual performance fallback for optional private mode
 
 A user-local watcher starts during normal activation and dynamic supervised runs. It samples macOS `memory_pressure -Q`, one-minute load divided by logical cores, and free disk. Linux CI uses `/proc/meminfo`. Load ratio measures scheduler load, not instantaneous CPU utilization. Historic swap usage alone does not trigger fallback.
 
@@ -98,7 +118,9 @@ A user-local watcher starts during normal activation and dynamic supervised runs
 | Dynamic | Allow new private environments; default 3 active budget units |
 | Constrained | Pause new private creation; reuse existing private environments or configured fallback slots |
 | Draining | Reduce new admissions to half the dynamic limit, minimum 1; use Traditional scheduling |
-| Traditional | Use the configured shared budget, default 1; preserve private assignment while serializing reuse |
+| Traditional | Use the configured shared budget; preserve private assignment while serializing reuse |
+
+In default shared mode, the configured pool and global capacities govern normal admission. Elevated or critical host pressure halves the new-admission budget (minimum one); a multiplayer group waits intact until capacity recovers, without evicting active work.
 
 Each 3 consecutive elevated samples moves one stage down. Defaults: available memory at/below 20%, load ratio at/above 0.85, or disk at/below 5 GiB. Critical thresholds are 10%, 1.25, 2 GiB; a critical sample immediately pauses new private creation, then sustained samples continue the gradual fallback. Unknown memory telemetry is treated conservatively as pressure. Recovery requires 10 consecutive healthy samples for **each** upward stage (memory at least 30%, load ratio at most 0.6, disk above 5 GiB). The 2-second cadence and hysteresis prevent rapid flapping.
 
@@ -219,7 +241,7 @@ Dead waiters are reaped. A dead owner with no live tracked work is reclaimed. Af
 
 Watcher state is local and user-owned; `flock` prevents duplicate watchers. If it crashes, the next activation/dynamic run restarts it. `watch --once` and `cleanup` perform maintenance manually. `monitor.daemon: false` disables background start; supervised runs still enforce their own policy and sample pressure. Idle maintenance reserves a stopping row before SDK calls. Partial creation remains quarantined. Interrupted idle shutdown is retried only after the verified stopping process dies, with runtime provenance checked again.
 
-Never use `booted`, implicit adb targets, `shutdown all`, `erase all`, `adb kill-server`, or stop another session's active VM. Only the manager's idle maintenance may stop a provenance-verified unleased private device by exact identifier. No erase/reset/personal-device deletion is implemented.
+Never use `booted`, implicit adb targets, `shutdown all`, `erase all`, `adb kill-server`, or stop another session's active VM. Only the manager's idle maintenance may stop a provenance-verified unleased private device by exact identifier. The explicit `prune-private` migration command deletes only verified offline legacy private environments after switching to shared mode; it never erases/resets a borrowed or personal device.
 
 One Mac account and local storage only; do not put the shared database on NFS/iCloud. This is cooperative coordination, not interception of arbitrary SDK callers. Process-group escape, external automation workers and rare ambiguous PID reuse remain outside strict protection. Do not delete state while workers run.
 

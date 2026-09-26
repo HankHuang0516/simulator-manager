@@ -11,7 +11,7 @@ All projects use the same `SIM_MANAGER_STATE_DIR` and pool configuration.
 Target only the assigned `SIM_MANAGER_UDID` or `SIM_MANAGER_SERIAL`.
 Never use implicit targets, arbitrary boot/shutdown, `shutdown all`, `erase all`,
 or `adb kill-server`. Release your own token on completion or failure.
-Default to Dynamic Simulator Pool; accept gradual pressure-aware Traditional fallback.
+Default to the warm shared FIFO pool; use optional Dynamic private environments only when deliberately configured.
 Keep the returned session label and project path stable for private device reuse.
 Total occupancy includes creation + boot + work (default 600 seconds);
 at most 3 real renewals, never beyond the original hard deadline.

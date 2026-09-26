@@ -12,7 +12,7 @@ import sys
 from typing import Any
 
 PROTOCOL_VERSION = "2025-03-26"
-SERVER_VERSION = "3.6.1"
+SERVER_VERSION = "4.0.0"
 MAX_CAPTURE = 32768
 
 TOOLS = [
@@ -45,6 +45,7 @@ TOOLS = [
                 "session": {"type": "string", "minLength": 1},
                 "project": {"type": "string", "minLength": 1},
                 "command": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                "device_count": {"type": "integer", "minimum": 1, "maximum": 8, "default": 1},
                 "boot": {"type": "boolean", "default": True},
                 "foreground": {"type": "boolean", "default": False},
                 "queue_timeout_seconds": {"type": "number", "minimum": 0, "maximum": 900, "default": 300},
@@ -191,6 +192,9 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
         if not isinstance(command, list) or not command or any(not isinstance(v, str) or not v for v in command):
             raise ToolError("command must be a non-empty array of non-empty argv strings")
         _reject_runtime_shutdown(command)
+        device_count = a.get("device_count", 1)
+        if isinstance(device_count, bool) or not isinstance(device_count, int) or not 1 <= device_count <= 8:
+            raise ToolError("device_count must be an integer from 1 to 8")
         queue_timeout = _number(a.get("queue_timeout_seconds", 300), "queue_timeout_seconds", 0, 900)
         command_timeout = _number(a.get("command_timeout_seconds", 2400), "command_timeout_seconds", 0.001, 2400)
         budget = _number(a.get("budget_seconds", 2400), "budget_seconds", 0.001, 2400)
@@ -198,6 +202,7 @@ def invoke_tool(name: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
         if isinstance(max_requeues, bool) or not isinstance(max_requeues, int) or not 0 <= max_requeues <= 3:
             raise ToolError("max_requeues must be an integer from 0 to 3")
         argv = ["run", platform, "--session", session, "--project", project, "--mode", "auto",
+                "--count", str(device_count),
                 "--timeout", str(queue_timeout), "--command-timeout", str(command_timeout),
                 "--budget-seconds", str(budget)]
         if a.get("boot", True) and platform != "gui":

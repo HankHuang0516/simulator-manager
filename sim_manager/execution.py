@@ -127,3 +127,57 @@ def execute(manager, token, command, env=None, timeout=None, operation='work', s
         # retain activity and lease until a later cleanup proves they exited.
         if registered and not group_alive(child.pid, manager.machine_boot):
             manager.end_activity(token)
+
+
+def execute_group(manager, tokens, command, env=None, timeout=None, stdout=None, stderr=None):
+    """Run one gated workload while every device lease tracks its process group."""
+    if not tokens:
+        raise ValueError('A device group needs at least one lease')
+    validate_runtime_command(command)
+    budgets = [manager.budget(token) for token in tokens]
+    exhausted = [b for b in budgets if b['remaining_seconds'] <= 0]
+    if exhausted:
+        return 75 if any(b['reason'] == 'requeue-required' for b in exhausted) else 124
+    child, gate = spawn_gated(command, env, stdout, stderr)
+    registered = []
+    try:
+        for token in tokens:
+            manager.begin_activity(token, 'work', child.pid, child.pid)
+            registered.append(token)
+        os.write(gate, b'1')
+        os.close(gate)
+        gate = None
+        end = time.monotonic() + timeout if timeout is not None else None
+        renew_at = time.monotonic() + min(10, manager.config['lease_seconds']/3)
+        while True:
+            from .monitor import update
+            update(manager)
+            budgets = [manager.budget(token) for token in tokens]
+            rc = child.poll()
+            busy = group_alive(child.pid, manager.machine_boot)
+            exhausted = [b for b in budgets if b['remaining_seconds'] <= 0]
+            if exhausted:
+                cancel_group(child)
+                return 75 if any(b['reason'] == 'requeue-required' for b in exhausted) else 124
+            if rc is not None and not busy:
+                return rc if rc >= 0 else 128-rc
+            if end is not None and time.monotonic() >= end:
+                cancel_group(child)
+                return 124
+            if time.monotonic() >= renew_at:
+                for token in tokens:
+                    try:
+                        manager.renew(token)
+                    except OwnershipError:
+                        pass
+                renew_at = time.monotonic() + min(10, manager.config['lease_seconds']/3)
+            time.sleep(.1)
+    except BaseException:
+        cancel_group(child)
+        raise
+    finally:
+        if gate is not None:
+            os.close(gate)
+        if registered and not group_alive(child.pid, manager.machine_boot):
+            for token in registered:
+                manager.end_activity(token)

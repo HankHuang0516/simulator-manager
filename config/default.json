@@ -23,7 +23,7 @@
       ]
     }
   },
-  "mode": "dynamic",
+  "mode": "traditional",
   "policy": {
     "max_hold_seconds": 2400,
     "max_renewals": 3,

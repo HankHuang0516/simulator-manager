@@ -92,6 +92,72 @@ class ManagerTests(unittest.TestCase):
         self.assertTrue(self.release(token)['released'])
         self.assertFalse(self.release(token)['released'])
 
+    def test_group_acquire_is_atomic_and_shell_exposes_all_devices(self):
+        self.config['pools']['ios']['capacity'] = 2
+        self.write_config()
+        result = self.cli('acquire','ios','--count','2','--owner-pid',os.getpid(),'--json')
+        self.assertEqual(result.returncode,0,result.stderr)
+        group = json.loads(result.stdout)
+        self.assertEqual([r['resource_id'] for r in group['leases']],['i1','i2'])
+        self.assertEqual(len(self.status()['leases']),2)
+        blocked = self.cli('acquire','ios','--count','2','--owner-pid',os.getpid(),'--timeout','0','--json')
+        self.assertNotEqual(blocked.returncode,0)
+        self.assertEqual(len(self.status()['leases']),2)
+        for lease in group['leases']:
+            self.release(lease['token'])
+        shell = self.cli('acquire','ios','--count','2','--owner-pid',os.getpid(),'--shell')
+        self.assertEqual(shell.returncode,0,shell.stderr)
+        values = subprocess.run(['/bin/sh','-c',shell.stdout+'\nprintf "%s|%s" "$SIM_MANAGER_COUNT" "$SIM_MANAGER_RESOURCE_IDS"'],
+                                capture_output=True,text=True)
+        self.assertEqual(values.stdout,'2|i1,i2')
+        tokens = subprocess.run(['/bin/sh','-c',shell.stdout+'\nprintf "%s" "$SIM_MANAGER_TOKENS"'],
+                                capture_output=True,text=True).stdout.split(',')
+        for token in tokens:
+            self.release(token)
+
+    def test_group_run_releases_every_device_after_failure(self):
+        self.config['pools']['ios']['capacity'] = 2
+        self.write_config()
+        result = self.cli('run','ios','--count','2','--session','multiplayer','--json','--',
+                          sys.executable,'-c','import os,sys; assert os.environ["SIM_MANAGER_COUNT"]=="2"; sys.exit(7)')
+        self.assertEqual(result.returncode,7,result.stderr)
+        self.assertEqual(json.loads(result.stdout)['count'],2)
+        self.assertEqual(self.status()['leases'],[])
+
+    def test_group_waits_under_shared_host_pressure_without_partial_lease(self):
+        self.config['pools']['ios']['capacity'] = 2
+        self.write_config()
+        m = self.manager()
+        with m.transaction():
+            m.db.execute("INSERT OR REPLACE INTO meta VALUES('controller',?)",
+                         (json.dumps({'stage':3,'pressure':'elevated','sampled_at':time.time()}),))
+        m.close()
+        refused = self.cli('acquire','ios','--count','2','--owner-pid',os.getpid(),'--timeout','0','--json')
+        self.assertEqual(refused.returncode,3,refused.stdout+refused.stderr)
+        self.assertEqual(self.status()['leases'],[])
+
+    def test_multiplayer_fifo_head_prevents_partial_or_later_single_grant(self):
+        self.config['pools']['ios']['capacity'] = 2
+        self.write_config()
+        held = self.acquire()
+        group = self.launch('acquire','ios','--count','2','--owner-pid',os.getpid(),'--session','group','--json')
+        self.until(lambda: len(self.status()['queue']) == 1)
+        single = self.launch('acquire','ios','--owner-pid',os.getpid(),'--session','later','--json')
+        self.until(lambda: len(self.status()['queue']) == 2)
+        self.assertEqual([row['count'] for row in self.status()['queue']], [2,1])
+        self.assertEqual(len(self.status()['leases']),1)
+        self.release(held['token'])
+        group_out,group_err = group.communicate(timeout=5)
+        self.assertEqual(group.returncode,0,group_err)
+        self.assertIsNone(single.poll())
+        leases=json.loads(group_out)['leases']
+        self.assertEqual(len(leases),2)
+        for lease in leases:
+            self.release(lease['token'])
+        single_out,single_err = single.communicate(timeout=5)
+        self.assertEqual(single.returncode,0,single_err)
+        self.release(json.loads(single_out)['token'])
+
     def test_recent_release_includes_task_platform_and_total_occupancy(self):
         project = self.state/'mobile-project'
         m = self.manager()

@@ -65,6 +65,17 @@ class MCPServerTests(unittest.TestCase):
         self.assertEqual(argv[argv.index("--budget-seconds") + 1], "2400.0")
         self.assertIs(run.call_args.kwargs["shell"], False)
 
+    def test_multiplayer_tool_requests_atomic_group(self):
+        completed = subprocess.CompletedProcess([], 0, '{"released":true,"count":2}\n', "")
+        with mock.patch.object(MCP, "cli_path", return_value="/tmp/sim-manager"), \
+             mock.patch.object(MCP.subprocess, "run", return_value=completed) as run:
+            MCP.invoke_tool("simulator_manager_run", {
+                "platform":"android", "session":"task-1", "project":"/tmp/app",
+                "device_count":2, "command":["./multiplayer-test"],
+            })
+        argv=run.call_args.args[0]
+        self.assertEqual(argv[argv.index('--count')+1], '2')
+
     def test_run_rejects_occupancy_above_forty_minutes(self):
         base = {"platform": "ios", "session": "s", "project": "/tmp/p", "command": ["true"]}
         with self.assertRaisesRegex(MCP.ToolError, "between 0.001 and 2400"):

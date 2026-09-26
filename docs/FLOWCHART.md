@@ -1,41 +1,35 @@
-# Dynamic Simulator Pool workflow
-
-[Full-resolution PNG](../assets/flowchart.png) · [Editable SVG](../assets/flowchart.svg)
+# Warm shared pool workflow
 
 ```mermaid
 flowchart TD
-    Enable[Enable simulator-manager Skill in each session] --> Build[Build and host unit tests first]
-    Build --> Need{Runtime or UI required?}
-    Need -- No --> Continue[Continue without simulator occupancy]
-    Need -- Yes --> Queue[FIFO admission: wait without occupying a device]
-    Queue --> Grant[Lease grant: start one total occupancy clock]
-    Grant --> Mode{Pressure-aware admission}
-    Mode -- Default --> Dynamic[Dynamic Simulator Pool: private device per session + project]
-    Mode -- Reduced admission --> Traditional[Traditional Mode: serial private reuse or configured shared slot]
-    Dynamic --> Create[Create if missing, then boot exact assigned device]
-    Traditional --> Create
-    Create --> Work[Runtime verification in registered workload group]
-    Work --> Waiting{Someone waiting?}
-    Waiting -- Yes --> Checkpoint[Finish or checkpoint at waiter slice boundary]
-    Waiting -- No --> Finish[Finish within total and phase deadlines]
-    Checkpoint --> Stop[Safely stop own work; confirm complete group exit]
-    Finish --> Stop
-    Stop --> Release[Release token on success, failure or interruption]
-    Release --> Next[Next eligible waiter proceeds]
-    Next -- Remaining validation --> Queue
-    Release --> Idle[Idle private VM may be stopped by manager; keep data]
+    Enable[Enable simulator-manager for each task] --> Build[Build and run host unit tests]
+    Build --> Need{Runtime or UI verification needed?}
+    Need -- No --> Host[Continue without device occupancy]
+    Need -- Yes --> Size{How many same-platform devices?}
+    Size -- One --> Request[Request one managed lease]
+    Size -- Multiplayer N --> Group[Request --count N as one atomic group]
+    Request --> FIFO[FIFO queue]
+    Group --> FIFO
+    FIFO --> Available{Entire request available within capacity?}
+    Available -- No --> Wait[Wait without holding a partial group]
+    Wait --> Available
+    Available -- Yes --> Grant[Grant all leases and start original total deadline]
+    Grant --> Boot[Boot exact assigned UDIDs or serials]
+    Boot --> Test[Run one supervised workload group; target every device explicitly]
+    Test --> Yield{Another task waiting or deadline reached?}
+    Yield -- Yes --> Checkpoint[Finish or checkpoint safely]
+    Yield -- No --> Finish[Finish validation and export]
+    Checkpoint --> Release[Release every lease; leave devices warm]
+    Finish --> Release
+    Release --> Next[Next FIFO request receives reused devices and their retained data]
+    Next -- Remaining work --> FIFO
 
-    Watch[Watcher: memory pressure, normalized load, free disk] --> Stage[Dynamic → Constrained → Draining → Traditional]
-    Stage --> Mode
-    Watch --> Recover[10 healthy samples per upward stage]
-    Recover --> Mode
-    Crash[Supervisor crash] --> Protect[Keep live tracked group reserved]
-    Protect --> Deadline[Watcher cancels only orphan group at original deadline]
-    Deadline --> Stop
+    Pressure[Watcher samples host pressure] --> Limits[Bound new admissions; never evict active work]
+    Limits --> Available
+    Crash[Owner or supervisor crash] --> Recovery[Protect live tracked work; reclaim proven-stale leases]
+    Recovery --> Available
 ```
 
-Defaults: total use budget 2400 seconds (40 minutes) including creation + boot + installation + validation + export; at most 3 actual extensions; waiter slice 120 seconds and late checkpoint window 10 seconds. A 1800-second soak fits only while no waiter arrives. Expired leases cannot be revived. Exit 75 requires remaining work to requeue at the FIFO tail; automatic rerun is opt-in for explicitly restartable commands only.
+The default is a bounded shared FIFO pool. A same-platform multiplayer request obtains its whole group at once, or waits without occupying a partial set. One maximum 2400-second occupancy deadline includes boot, installation, validation and export; at most three actual renewals stay inside that deadline. A waiting task triggers a 120-second fair-use slice and a bounded 10-second late checkpoint window. Exit 75 requires remaining work to requeue at the FIFO tail. The manager, not a task, may retire an unleased device for a real capacity or critical-pressure need. Releasing use rights does not shut down the device or erase its apps/data.
 
-Pressure uses 2-second sampling and 3 elevated samples per downward step; critical telemetry immediately pauses new private creation. New private creation pauses first, then admissions reduce and Traditional scheduling applies. Active environments are never evicted. Only provenance-verified unleased private VMs can be stopped by exact identifier, at most one per sampling interval. Private assignment/data persists; another session never receives it.
-
-Supervised run enforces policy. Unknown live manual work stays protected; cancellation cannot promise arbitrary side-effect rollback. Device-data isolation shares the Mac host, SDKs and desktop. Foreground mobile requests use `--foreground`, avoiding nested GUI reservations.
+Optional Dynamic private environments remain available for installations that deliberately enable that mode. They are never lent to another task. Migration to shared mode and private cleanup require zero leases and FIFO waiters; ambiguous or live private devices stay protected.

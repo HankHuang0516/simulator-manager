@@ -1,91 +1,69 @@
 ---
 name: simulator-manager
-description: Coordinate macOS iOS Simulators, Android Emulators and GUI test resources across Codex sessions. Default to a Dynamic Simulator Pool with private session environments, pressure-aware Traditional FIFO fallback, bounded occupancy, safe yielding and guaranteed release for runtime/UI testing.
+description: Coordinate macOS iOS Simulators, Android Emulators and GUI resources across Codex tasks through a warm shared FIFO pool, atomic multiplayer device groups, bounded use, safe yielding and automatic release.
 ---
 
-# Simulator manager
+# Simulator Manager
 
-Use the Simulator Manager MCP tools when this Skill is provided by the official Plugin. They wrap the complete `sim-manager` CLI and keep runtime work inside one supervised call. Use the CLI examples as a fallback or when the user explicitly requests shell usage. If the CLI is absent, read [references/installation.md](references/installation.md). Read [references/usage.md](references/usage.md) for manual leases, policy and recovery. Coordination is cooperative; every participating session must adopt it.
+Use the official `simulator_manager_*` MCP tools when available. The `sim-manager` CLI is the fallback. Read [SESSION_START.md](../../../SESSION_START.md) for one-sentence activation and [references/installation.md](references/installation.md) if the CLI is missing. All tasks on the Mac account must use the same local state and configuration. Coordination is cooperative; registration alone does not prove that a task followed the rules.
 
-## Enable this session
+## Enable the current task
 
-Follow `https://github.com/HankHuang0516/simulator-manager/blob/main/SESSION_START.md`.
-Use the one-command Tool installer or bootstrap to install the complete project once. With the Plugin active, call `simulator_manager_enable` using the actual task ID and canonical project path. CLI fallback:
-
-```sh
-sim-manager enable --session '<actual-task-id>' --project '/actual/project/path' --prepare --json
-```
-
-Save the session label, canonical absolute project path, CLI and shared state path for every later call. Pass both `--session` and `--project` explicitly on every acquire/run, including calls from other working directories. Registration does not supply a default project to subsequent requests; omitting `--project` uses the current working directory and may request a different environment. If no task ID is available, let bootstrap/enable generate a label and retain it. Do not generate a new label per tool call. All projects on the Mac account use the same state/config. Registration records intent; supervised leases enforce actual reservations. Missing SDK readiness does not permit bypassing coordination.
-
-After enable, call `simulator_manager_guidance` for the saved session. Before every runtime/UI phase, call it again. If it returns an active finding, immediately explain in the current task that direct `simctl`, `adb`, `emulator`, or unleased simulator testing can overlap another task, then give the returned managed replacement. Acknowledge only after the explanation. The watcher stores only the action category and task attribution; it never stores full commands or terminates a task/device. A task that never registers cannot be safely attributed from an OS process alone, so treat any dashboard coverage gap as a request to enable that task, never as permission to guess or kill.
-
-New installations use **Dynamic Simulator Pool**. Each session + project + platform has a fixed private device/AVD, created lazily within a reserved budget. Preserve the project path and label. This isolates device data, not the entire host or foreground GUI. Existing configs without `mode` preserve **Traditional Mode**, the original shared-pool FIFO scheduler. Do not change shared configuration during active work or to bypass pressure.
-
-## Build and host tests first
-
-Perform applicable static checks, builds and host unit tests before requesting a simulator. Documentation, pure models, JVM tests and compile-only changes generally need no simulator. Simulator-dependent application XCTest, runtime behavior, instrumented tests, UI/layout, navigation, gestures, lifecycle and screenshots require a lease. Build-for-testing outside occupancy and test-without-building inside it when supported. Never claim required UI/runtime checks passed solely because a build passed.
-
-## Preferred lifecycle: one supervised Tool call
-
-Call `simulator_manager_run` with `platform`, the saved `session`, the canonical `project`, and `command` as an argv array. Keep the default `boot: true` for mobile runtime checks. Set `foreground: true` only for visible desktop automation. The Tool uses Dynamic mode with pressure-aware fallback and guarantees release before returning.
-
-The equivalent CLI form is:
+Call `simulator_manager_enable` with the actual task ID and canonical absolute project path. CLI equivalent:
 
 ```sh
-sim-manager run ios --session '<saved-label>' --project '/saved/absolute/project/path' --boot --timeout 300 --command-timeout 2400 --budget-seconds 2400 -- sh -eu -c '
-  xcodebuild test-without-building -scheme MyApp -destination "id=$SIM_MANAGER_UDID"
-'
+sim-manager enable --session '<actual-task-id>' --project '/absolute/project/path' --prepare --json
 ```
+
+Keep that session/project pair on every later call, even from a different working directory. Do not invent a new label per request or a long-lived owner PID. After enabling, and before each runtime/UI phase, call `simulator_manager_guidance` (CLI: `sim-manager audit --session '<actual-task-id>' --json`). Explain an active, reliably attributed finding to the task before acknowledging it. Do not infer a violator from an unregistered or overlapping process tree.
+
+New installations use the **warm shared pool** (`traditional` mode). A bounded set of manager-owned devices is lent to tasks in FIFO order. Release returns use rights and leaves the device booted and its apps/data intact for the next borrower. A saved older installation may still use private Dynamic mode until an idle-window migration; never rewrite its config while leases or waiters exist.
+
+## Request a simulator only when needed
+
+Run applicable static checks, builds and host unit tests first. Documentation, pure models, ordinary JVM tests and compile-only work generally need no simulator. Device-dependent XCTest, Android instrumentation, runtime behavior, UI/layout, navigation, gestures, lifecycle and screenshots require a managed lease. Build-for-testing before occupancy and test-without-building during occupancy when supported. Do not claim runtime/UI verification from a build alone.
+
+Prefer one supervised `simulator_manager_run` call with `platform`, saved `session`, canonical `project`, and an argv `command`; leave `boot: true` for mobile checks. CLI examples:
 
 ```sh
-sim-manager run android --session '<saved-label>' --project '/saved/absolute/project/path' --boot --timeout 300 --command-timeout 2400 --budget-seconds 2400 -- sh -eu -c '
-  adb -s "$SIM_MANAGER_SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk
-  adb -s "$SIM_MANAGER_SERIAL" shell am start -n com.example.app/.MainActivity
-  # Add meaningful, explicitly targeted runtime assertions.
-'
+sim-manager run ios --session '<task-id>' --project '/absolute/project/path' --boot -- \
+  sh -eu -c 'xcodebuild test-without-building -scheme MyApp -destination "id=$SIM_MANAGER_UDID"'
+
+sim-manager run android --session '<task-id>' --project '/absolute/project/path' --boot -- \
+  sh -eu -c 'adb -s "$SIM_MANAGER_SERIAL" install -r app-debug.apk; ./targeted-device-check "$SIM_MANAGER_SERIAL"'
 ```
 
-Substitute project identifiers. Use `sh -eu` for multi-step failure propagation. `run` reserves admission, counts creation + boot + work from the same grant, tracks the complete workload group, and releases on success/failure/interruption/timeout. Never daemonize tests or escape their process group.
+For visible desktop automation add `--foreground`; it serializes the single GUI lane. Never acquire a nested `gui` lease while holding a foreground mobile lease. Use only the assigned UDID/serial: no `booted`, implicit adb target, arbitrary simulator selection, `shutdown all`, `erase all`, `adb kill-server`, or another task's device.
 
-For visible desktop automation, add **`--foreground`** to the mobile request. The manager atomically serializes foreground requests and the `gui` pool. Do not acquire a nested GUI lease while holding a simulator. Headless/device-targeted work can run in parallel private environments.
+## Multiplayer: acquire a whole device group
 
-Only use assigned `SIM_MANAGER_UDID` / `SIM_MANAGER_SERIAL`. Never use `booted`, an implicit adb target, arbitrary devices, `shutdown all`, `erase all`, `adb kill-server`, or another session's device. Boot through `run --boot` or `boot TOKEN`. **Every session must finish testing by releasing the lease without powering off the simulator or emulator.** This rule also applies while the session holds a valid lease and when its test succeeds, fails, times out, or is interrupted. Release frees use rights while leaving a verified private VM warm for the next managed request and preserving session device data. Never run `simctl shutdown`, `adb emu kill`, close an emulator to end a managed run, or add shutdown commands to success, failure, `finally`, or cleanup paths. Supervised `run` rejects explicit shutdown commands, and compliance coaching flags detected shutdown attempts even when a lease exists. Only the manager's idle maintenance may stop its own provenance-verified **unleased private** VM by exact identifier for real capacity needs, critical pressure, or the configured idle timeout.
+If a test requires several devices simultaneously, request them **as one atomic same-platform group**. In the MCP tool set `device_count: N`; in the CLI use `--count N`. Do not acquire devices one by one or keep a partial set while waiting. The group waits at one FIFO position until all N devices and capacity are available. It receives one shared occupancy/yield policy; every lease is tracked during the same workload and all are released on success, failure, interruption or timeout.
 
-## Occupancy and fair-use rules
+An operator prepares enough manager-owned shared devices during a drained window with `sim-manager setup ios --count N` or `sim-manager setup android --count N`. If capacity is insufficient, report it and wait for that setup; never use an unmanaged device to fill the gap. Example:
 
-- Default total use budget: **2400 seconds (40 minutes) including creation, boot, installation, validation and artifact export**. Request less with `--budget-seconds`; never exceed the shared maximum. A 1800-second soak fits only when no waiter arrives. Do not reset the clock by switching phases or renewing.
-- At most **3 actual lease extensions**. No-op renewal checks do not count; every extension remains capped by the original hard deadline. An expired lease cannot be revived. Finish/cancel, release and request a fresh lease.
-- When someone waits, yield at the **120-second** slice boundary even if the 2400-second hard limit has time remaining. If that boundary is already past, the manager gives a **10-second** checkpoint window, capped by the original deadline. Observe the reported `yield_by` and remaining time.
-- Split validation into short chunks. Handle SIGTERM by checkpointing and exiting; the supervisor then cancels surviving owned processes after its termination grace. Cancellation is not arbitrary side-effect rollback.
-- Exit **75** means safely yielded: request remaining work again at the **FIFO tail**. Keep the same environment label, but obtain a new lease token. Never continue using the simulator between leases or jump the queue.
-- Only explicitly checkpointed/restartable commands may use `--requeue-on-yield --max-requeues 3`. Otherwise save remaining steps and request them separately. If retries/queue wait end, report pending validation and requeue remaining work when continuing; never silently skip it.
-- On total timeout (124), failures or interruption, ensure release. If registered descendants survive, finish/cancel your own work; do not force reclamation or stop the long-lived Codex owner.
+```sh
+sim-manager run android --count 2 --session '<task-id>' --project '/absolute/project/path' --boot -- \
+  sh -eu -c './multiplayer-check "$SIM_MANAGER_SERIALS"'
+```
 
-## Pressure-aware fallback
+`SIM_MANAGER_SERIALS` and `SIM_MANAGER_UDIDS` are comma-separated ordered lists; `SIM_MANAGER_RESOURCE_IDS` and `SIM_MANAGER_TOKENS` use the same order. `SIM_MANAGER_COUNT` is the granted size. Singular variables identify the first device for compatibility. The test must parse the list and explicitly target **every** participant (`adb -s SERIAL`, `xcodebuild -destination id=UDID`). Cross-platform iOS+Android groups are not atomic yet; use separate bounded phases. Shared devices retain prior apps/data by design, so use separate test accounts, namespaces and records when different tasks or players use the same app. Never erase another task's data as generic cleanup.
 
-The watcher samples host memory pressure, normalized load and disk. Sustained pressure progresses **Dynamic → Constrained (pause creation) → Draining (reduce admission) → Traditional**. Recovery is slower and gradual. Accept the current admission limit. Keep `--mode auto` for pressure-aware reuse of your assigned private environment. A reported Traditional stage is an admission state; explicitly requesting `--mode traditional` instead selects the static pool. Do not force new environments or change caps to evade it.
+## Occupancy, yielding and release
 
-Downgrades preserve active leases and private assignments. Existing private environments can be reused serially under Traditional admission; new owners may receive configured Traditional fallback slots. Another session's private environment is never shared. Idle private VMs may be stopped while retaining data. Capacity/environment exhaustion means wait/timeout, not erase/reassign another environment.
+- Total budget is at most **2400 seconds**, including grant, boot, installation, test and export. Request less with `--budget-seconds`. Booting devices sequentially does not reset the clock. No renewal may extend the original hard deadline.
+- At most **3 actual lease extensions**. If another task waits, finish or checkpoint at the **120-second** fair-use boundary. If already past it, use the bounded **10-second** checkpoint window. Yield and rejoin at the FIFO tail for remaining validation.
+- Exit **75** signals safe yielding. `--requeue-on-yield` is only for explicitly checkpointed/restartable commands; an arbitrary test is never automatically replayed safely. Exit **124** means the budget or phase timeout ended.
+- Always finish/cancel the owned workload and release every lease. Supervised `run` tracks its complete process group and releases in a `finally` path. Do not daemonize or escape that group. A live uninterruptible descendant keeps its reservation until it exits.
+- **Release never means power off.** Do not run `simctl shutdown`, close an emulator, use `adb emu kill`, or add shutdown actions to success/failure cleanup. Only Simulator Manager may retire an unleased, provenance-verified device for real capacity, critical pressure or configured idle maintenance. Direct shutdown actions are rejected and may appear in compliance coaching.
 
-## Manual and recovery boundaries
+Manual `acquire` needs a verified long-lived owner PID and explicit `finally` release; the CLI's `--shell` exports one token for a single device or `SIM_MANAGER_TOKENS` for a group. A manual live-owner lease cannot be safely inferred complete, and strict deadline enforcement requires supervised `run`. Never kill a Codex task owner PID to reclaim a slot.
 
-Prefer one `run` invocation. Multi-tool interactive leases require a verified long-lived owner PID, preserved token, reported deadline checks, synchronous work and release in `finally`. Never invent a PID, use PID 1 or assume a one-shot tool shell is a durable owner. Manual external GUI activity cannot be strictly supervised: expired live-owner reservations stay protected. Strict time enforcement requires `run`.
+## Pressure, recovery and visibility
 
-Use `status --json` to inspect mode, metrics, deadlines, owners, environments and queue. `cleanup --json` performs safe maintenance. The watcher reclaims dead-owner/dead-work reservations and cancels tracked orphan groups at their deadline; it never kills Codex session PIDs. If the watcher crashes, activation/dynamic runs restart it. Unknown external runtimes, partial creation and ambiguous shutdown are quarantined rather than adopted or stolen.
+The watcher samples host memory pressure, normalized load and disk. In optional Dynamic mode, sustained pressure progresses Dynamic → Constrained → Draining → Traditional, with slower recovery. Active leases are not evicted. A private environment is never lent to another task; private idle retirement is manager-only. In default shared mode, bounded pool/global capacities and FIFO remain authoritative. Do not edit caps to bypass pressure.
 
-On queue timeout, report the exact unverified runtime checks and retry through the manager. Config changes/upgrades require drained leases/queues and paused callers. Do not enable `allow_attach` to bypass another owner. This mode remains the current session convention until the user changes it.
+Use `sim-manager status --json` to inspect queue, owners, deadlines, renewals, resources, environments and host state. `cleanup --json` safely reaps proven-stale state; unknown external or ambiguous activity stays protected. The floating `sim-manager ui` dashboard is a single Dock-visible instance. Its Monitor button performs a read-only bypass audit; a clear result covers only uniquely attributable registered task trees. The dashboard follows device language by default and allows English/Traditional Chinese selection. Registration is not runtime/UI acceptance.
 
-## Dashboard
+To migrate an older private installation, first verify zero leases and FIFO waiters. Prepare one shared device per platform if missing, run `switch-shared`, then use `prune-private` only after confirming every private device is offline and provenance-verified. The cleanup reports ambiguous leftovers instead of guessing or touching external devices. After recovering disk, prepare extra shared devices for actual multiplayer demand with `setup ios|android --count N`. Do not run setup, switching or pruning during active work.
 
-When asked to view scheduling, run the installed CLI `sim-manager ui`. On macOS 13+ it lazily builds and opens a native floating SwiftUI panel using Xcode command line tools. **Only one main dashboard UI may run for the macOS account.** Repeated CLI, Dock, Finder, installer, or direct-binary launches activate the existing window through the singleton lock instead of creating another panel or menu-bar item. While running, the app remains visible with its custom routing icon in the Dock and in the menu bar; either entry can reopen a hidden panel. It uses the same shared state and updates every two seconds. Its **Monitor** button performs a read-only `audit --json` scan and displays attributable bypass findings separately from unregistered, unobservable or overlapping task process trees; it never stops a task, runtime, or ADB. A clear scan covers only registered task trees whose actions can be uniquely attributed. If two task labels share a process subtree, do not accuse either label of actions observed in that overlap. Recent Activity names the task/project and platform, and shows live elapsed time or completed total occupancy. The language control defaults to the device's preferred language and can persistently select Automatic, English, or Traditional Chinese. Viewing status or running the monitor does not require acquiring a simulator. Registered sessions are adoption records, not proof of live work. The manager watcher operates independently of the panel.
-
-## Android target recovery
-
-Version 2.0.1 corrects new AVD root targets to the installed image's integer major API, keeping Major.Minor image paths. Do not replace `android-0` with a decimal/unknown API. If boot reports an invalid root target on an existing private AVD, acquire a short valid manual lease with a verified durable owner, set release traps/finally, and run `repair-android-target TOKEN` before `boot TOKEN`. This command only repairs your assigned idle private manifest after verifying no VM/work/occupied ports and valid installed SDK image metadata. It changes no userdata, SDK files, signatures or safety settings and does not reset deadlines. Rejecting a busy/external/ambiguous environment is a blocker to resolve through its owner, not permission to stop it. No background migration or cross-session repair is allowed.
-
-Warm reuse: matching pending requests protect their running private environment. A queue or degraded stage alone does not trigger shutdown. Normal session completion means release only; it does not mean power off. This is mandatory for success, failure, timeout, interruption and cleanup paths. Supervised runs reject explicit shutdown commands and compliance coaching flags shutdown attempts even with a lease. Maintenance may retire unleased VMs for actual capacity needs, critical telemetry or the configured idle timeout; retain data and let the manager control retirement. Never hold/renew a lease merely to keep a VM warm.
-
-## Unity shared ADB compatibility
-
-Unity can enumerate Android devices during Editor/build/host-test startup and terminate shared ADB automatically, even when your script has no server commands. Read [references/unity.md](references/unity.md) before Unity-based shared Android work. Ensure its automatic ADB termination controls are disabled in a coordinated Editor-idle window; do not switch SDK paths or restart a server to bypass failures. Use sanitized failure logs: Unity error blocks can dump sensitive process environment values.
+For Unity-based Android work, read [references/unity.md](references/unity.md). Unity may enumerate devices and stop shared ADB indirectly; do not diagnose it by restarting the Editor/device or exporting full preferences/environment error blocks. Keep the existing REBOUND Android retry pause until the shared ADB remote-stop cause is attributed and explicitly resumed.
