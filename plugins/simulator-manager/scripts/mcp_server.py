@@ -12,7 +12,7 @@ import sys
 from typing import Any
 
 PROTOCOL_VERSION = "2025-03-26"
-SERVER_VERSION = "4.0.0"
+SERVER_VERSION = "4.0.1"
 MAX_CAPTURE = 32768
 
 TOOLS = [

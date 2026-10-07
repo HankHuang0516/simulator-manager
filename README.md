@@ -6,6 +6,12 @@ A local Codex Tool, Skill and macOS shared resource scheduler. The Tool exposes 
 
 **Official website:** [eclawbot.com/AiHankApps/tools/simulator-manager](https://eclawbot.com/AiHankApps/tools/simulator-manager/)
 
+## 4.0.1 icon assets
+
+The macOS dashboard's actual bundle icon, plugin artwork and website favicon use Hank's approved general italic H layer. Unbranded originals remain in `assets/originals/`; the approved layer is in `assets/branding/`. `scripts/brand_icon.py` reproduces the composite from those originals (Pillow is needed only by this artwork preparation script, not by the installed CLI). The macOS H occupies the blank lower-right interior and leaves every pixel outside its overlay unchanged; native ICNS sizes are generated from this master. The CLI has no separate terminal launcher icon. Simulator Manager does not ship Android or iOS apps.
+
+The installer builds the host's macOS App as before. Use a drained lease/queue window for an existing managed installation upgrade; configuration, shared devices and their data must remain intact. Artwork changes do not authorize pool migration or cleanup.
+
 ## One-command Tool install
 
 ```sh
