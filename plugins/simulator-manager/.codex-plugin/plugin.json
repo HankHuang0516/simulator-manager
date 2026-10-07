@@ -1,6 +1,6 @@
 {
   "name": "simulator-manager",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "description": "Coordinate iOS Simulators and Android Emulators across Codex sessions with a warm shared FIFO pool, atomic multiplayer groups, and one shared dashboard.",
   "author": {
     "name": "Hank Huang",
